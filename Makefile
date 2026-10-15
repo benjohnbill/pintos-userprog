@@ -1,6 +1,6 @@
 # Team convention checks. Run from the repository root.
 #   make format   rewrite the C files in the team style (.clang-format)
-#   make lint     report style and naming violations; exit 1 if any
+#   make lint     report style and naming violations; fail (nonzero exit) if any
 # The editor shows the same results live through clangd.
 # Pintos tests are upstream files; `make check` in pintos/userprog runs them.
 
