@@ -4,19 +4,19 @@ Linux kernel 스타일을 기준으로 두 가지만 바꿨다. 들여쓰기는 
 
 | 표시 | 누가 맞추나 |
 |---|---|
-| 🤖 | 저장하면 자동으로 고쳐진다 (`.clang-format`) |
-| ⚠️ | 에디터에 노란 밑줄이 뜬다 (`.clang-tidy`) |
-| 👀 | 도구가 못 잡는다. 리뷰에서 본다 |
+| <img src="assets/convention/wand-sparkles.svg" width="16" height="16" alt="자동 수정"> | 저장하면 자동으로 고쳐진다 (`.clang-format`) |
+| <img src="assets/convention/triangle-alert.svg" width="16" height="16" alt="경고"> | 에디터에 노란 밑줄이 뜬다 (`.clang-tidy`) |
+| <img src="assets/convention/eye.svg" width="16" height="16" alt="리뷰"> | 도구가 못 잡는다. 리뷰에서 본다 |
 
-`make lint`는 🤖와 ⚠️를 모두 검사한다.
+`make lint`는 <img src="assets/convention/wand-sparkles.svg" width="16" height="16" alt="자동 수정"> 자동 수정 항목과 <img src="assets/convention/triangle-alert.svg" width="16" height="16" alt="경고"> 경고 항목을 모두 검사한다.
 
 ---
 
-## A. 모양 🤖
+## <img src="assets/convention/wand-sparkles.svg" width="16" height="16" alt="자동 수정"> A. 모양
 
 ### A1. 들여쓰기는 스페이스 4칸
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 int f(int x)
 {
@@ -26,7 +26,7 @@ int f(int x)
 	return 0;
 }
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 int f(int x)
 {
@@ -39,7 +39,7 @@ int f(int x)
 
 ### A2. 중괄호 위치: 함수만 다음 줄, 나머지는 같은 줄
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 int f(int x) {
     if (x)
@@ -52,7 +52,7 @@ int f(int x) {
     }
 }
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 int f(int x)
 {
@@ -64,15 +64,15 @@ int f(int x)
 }
 ```
 
-### A3. 본문이 한 줄이어도 중괄호 (🤖 + ⚠️)
+### A3. 본문이 한 줄이어도 중괄호 <img src="assets/convention/wand-sparkles.svg" width="16" height="16" alt="자동 수정"> <img src="assets/convention/triangle-alert.svg" width="16" height="16" alt="경고">
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 if (fd < 0) return -1;
 while (n--)
     count++;
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 if (fd < 0) {
     return -1;
@@ -84,7 +84,7 @@ while (n--) {
 
 ### A4. 공백: 제어문 뒤에는 있고, 함수 호출 뒤에는 없다
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 if(x==1&&y>0){
     foo (a,b);
@@ -93,7 +93,7 @@ for(i=0;i<n;i++){
     char* p=bar ();
 }
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 if (x == 1 && y > 0) {
     foo(a, b);
@@ -110,7 +110,7 @@ for (i = 0; i < n; i++) {
 
 ### A5. `switch`의 `case`는 `switch`와 같은 깊이
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 switch (n) {
     case 0:
@@ -119,7 +119,7 @@ switch (n) {
         return 0;
 }
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 switch (n) {
 case 0:
@@ -135,11 +135,11 @@ default:
 
 ---
 
-## B. 이름 ⚠️
+## <img src="assets/convention/triangle-alert.svg" width="16" height="16" alt="경고"> B. 이름
 
 ### B1. 함수·변수·구조체는 snake_case
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 struct FileDesc {
     int fd;
@@ -147,7 +147,7 @@ struct FileDesc {
 int openFile(const char *fileName);
 int FdCount;
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 struct file_desc {
     int fd;
@@ -158,12 +158,12 @@ int fd_count;
 
 ### B2. 상수 매크로와 enum 값은 대문자
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 #define maxFd 128
 enum color { red, Green };
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 #define MAX_FD 128
 enum color { RED, GREEN };
@@ -173,7 +173,7 @@ enum color { RED, GREEN };
 
 ---
 
-## C. 이름 짓는 규칙 👀
+## <img src="assets/convention/eye.svg" width="16" height="16" alt="리뷰"> C. 이름 짓는 규칙
 
 도구가 못 잡는 부분이다. 이름을 미리 다 정하는 대신, 아래 규칙으로 고르면 서로 비슷한 이름이 나온다.
 
@@ -181,13 +181,13 @@ enum color { RED, GREEN };
 
 모듈 이름이 맨 앞에 와서, 이름만 보고 어느 파일에 있는지 안다.
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 void create_thread(void);
 void *get_page_palloc(void);
 void push_back_list(struct list *l, struct list_elem *e);
 ```
-✅ (Pintos 함수)
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답** (Pintos 함수)
 ```c
 tid_t thread_create(const char *name, int priority, thread_func *f, void *aux);
 void *palloc_get_page(enum palloc_flags flags);
@@ -208,12 +208,12 @@ void list_push_back(struct list *list, struct list_elem *elem);
 | `find` / `lookup` | 찾는다. 없으면 `NULL`을 돌려준다 | `hash_find` |
 | `is_` / `has_` | 참·거짓을 묻는다. `bool`을 돌려준다 | `is_user_vaddr` |
 
-❌ 짝이 안 맞는다
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답** 짝이 안 맞는다
 ```c
 struct table *table_create(void);
 void table_free(struct table *t);
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 struct table *table_create(void);
 void table_destroy(struct table *t);
@@ -221,13 +221,13 @@ void table_destroy(struct table *t);
 
 ### C3. 변수는 명사. 쓰이는 범위가 넓을수록 길게 짓는다
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 static int n; /* 전역인데 무엇의 개수인지 모른다 */
 for (int index_of_loop = 0; index_of_loop < 10; index_of_loop++) {
 }
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 static int open_file_cnt;
 for (int i = 0; i < 10; i++) {
@@ -243,7 +243,7 @@ for (int i = 0; i < 10; i++) {
 
 시스템 콜 인자 이름은 `include/lib/user/syscall.h`를 따른다. 새 개념이 생기면 이 표에 한 줄 추가한다.
 
-| 개념 | 이름 | ❌ 쓰지 않는 이름 |
+| 개념 | 이름 | 쓰지 않는 이름 |
 |---|---|---|
 | 파일 디스크립터 | `fd` | `file_descriptor`, `fdnum`, `desc` |
 | 열린 파일 | `struct file *file` | `f`, `fp`, `filep` |
@@ -254,13 +254,13 @@ for (int i = 0; i < 10; i++) {
 
 ### C5. 구조체에는 `typedef`를 붙이지 않는다
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 typedef struct file_desc {
     int fd;
 } file_desc_t;
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 struct file_desc {
     int fd;
@@ -271,13 +271,13 @@ struct file_desc {
 
 ### C6. 숫자 상수에는 이름을 붙인다
 
-❌
+<img src="assets/convention/x.svg" width="16" height="16" alt="오답"> **오답**
 ```c
 if (fd >= 128) {
     return -1;
 }
 ```
-✅
+<img src="assets/convention/check.svg" width="16" height="16" alt="정답"> **정답**
 ```c
 #define FD_MAX 128
 
