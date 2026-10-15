@@ -293,9 +293,40 @@ if (fd >= FD_MAX) {
 저장소 루트에서 실행한다.
 
 ```bash
-make format   # 모든 C 파일을 컨벤션대로 고친다
 make lint     # 위반을 출력한다. 위반이 있으면 종료 코드 1
+make format   # 모양 위반을 고치고, 바꾼 줄을 보여 준다
 ```
+
+`make lint` 출력 예:
+
+```
+pintos/userprog/syscall.c:52: layout: make format 이 고친다
+    52 |     if(n>128) return -1;
+       |       ^ ^^   ^          ^
+pintos/userprog/syscall.c:50:12: naming: invalid case style for function 'countFiles' [readability-identifier-naming]
+   50 | static int countFiles(int n)
+      |            ^~~~~~~~~~
+      |            count_files
+
+모양 1줄: make format 으로 자동 수정 | 이름·중괄호 1건: 직접 수정 (CONVENTION.md)
+```
+
+- `layout`: 한 줄에 하나씩 나오고, `^`가 고칠 자리를 가리킨다. `make format`이 고친다.
+- `naming`, `braces`: 맨 아래 줄이 고칠 이름이다. 이름은 직접 바꾼다.
+
+`make format` 출력 예:
+
+```
+pintos/userprog/syscall.c
+@@ -52 +54,3 @@
+-    if(n>128) return -1;
++    if (n > 128) {
++        return -1;
++    }
+format: 1개 파일 수정
+```
+
+C 규칙(이름 짓는 규칙)은 도구가 잡지 못한다. 리뷰에서 보거나, AI에게 이 문서를 기준으로 diff를 검토해 달라고 한다.
 
 `make lint`는 `threads/ devices/ userprog/ filesys/`의 이름 규칙을 본다. `lib/`(C 표준 라이브러리 이름)와 `vm/`(Project 3)은 이름 검사에서 제외한다. 모양 검사는 `tests/`, `utils/`를 뺀 전체가 대상이다.
 
