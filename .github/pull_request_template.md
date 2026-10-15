@@ -5,7 +5,7 @@
 -
 
 ## 테스트 결과
-<!-- pintos/threads 에서 make check -->
+<!-- pintos/userprog 에서 make check (userprog + filesys/base + no-vm + threads 회귀) -->
 - 통과 / 전체:
 - 신규 통과:
 - 실패:
