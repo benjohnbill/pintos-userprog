@@ -220,12 +220,15 @@ int process_exec(void *f_name)
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-int process_wait(tid_t child_tid UNUSED)
+int process_wait(tid_t child_tid)
 {
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-    return -1;
+    //return -1;
+    while (true) {
+        thread_yield();
+    }
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -389,6 +392,9 @@ static bool load(const char *file_name, struct intr_frame *if_)
         goto done;
     }
 
+    /* 스레드 이름을 프로그램 이름만 사용하게 변경 */
+    strlcpy(thread_current()->name, exec_name, sizeof thread_current()->name);
+
     /* Allocate and activate page directory. */
     t->pml4 = pml4_create();
     if (t->pml4 == NULL) {
@@ -480,6 +486,8 @@ static bool load(const char *file_name, struct intr_frame *if_)
 
     /* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+
+    /* argument passing: 시작 시 커널 -> 사용자 프로그램 */
 
     char *token;         // 현재 얻은 토큰의 시작 주소
     int argc = 0;        // 위에서 exec_name으로 하나 쪼갰으니 1부터 시작
