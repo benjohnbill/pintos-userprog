@@ -209,12 +209,15 @@ int process_exec(void *f_name)
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-int process_wait(tid_t child_tid UNUSED)
+int process_wait(tid_t child_tid)
 {
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-    return -1;
+    //return -1;
+    while (true) {
+        thread_yield();
+    }
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -377,6 +380,10 @@ static bool load(char *file_name, struct intr_frame *if_)
     if (token == NULL) {
         goto done;
     }
+
+    /* In thread's name, insert the tokenized file_name. */
+    strlcpy(t->name, file_name, sizeof(t->name));
+
     /* 문자열이 아닌, 각 문자열의 사용자 스택 주소만 저장할 공간이다. */
     arg_addrs = malloc(count_arg * sizeof *arg_addrs);
     if (arg_addrs == NULL) {
