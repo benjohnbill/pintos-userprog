@@ -212,15 +212,13 @@ int process_wait(tid_t child_tid UNUSED)
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
     for (;;) {
+        thread_yield();
     }
-    return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
 {
-    struct thread *curr = thread_current();
-    printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
     /* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
