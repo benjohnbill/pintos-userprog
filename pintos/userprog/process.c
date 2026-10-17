@@ -13,9 +13,7 @@
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
-//! * 정승영 추가 */
 #include "threads/malloc.h"
-//! * 끝 */
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/mmu.h"
@@ -214,7 +212,6 @@ int process_wait(tid_t child_tid)
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-    //return -1;
     while (true) {
         thread_yield();
     }
@@ -224,6 +221,12 @@ int process_wait(tid_t child_tid)
 void process_exit(void)
 {
     struct thread *curr = thread_current();
+
+    /* Kernel threads have no page table; only user processes print. */
+    if (curr->pml4 != NULL) {
+        printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+    }
+
     /* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
@@ -340,14 +343,9 @@ static bool load(char *file_name, struct intr_frame *if_)
     off_t file_ofs;
     bool success = false;
 
-    //! 정승영 코드 //
-
     /* 사용자 스택에 복사한 문자열의 주소를 임시로 보관한다. */
     char **arg_addrs = NULL;
     int argc = 0;
-
-    //! 끝 //
-
     int i;
 
     /* Allocate and activate page directory. */
@@ -358,18 +356,12 @@ static bool load(char *file_name, struct intr_frame *if_)
     process_activate(thread_current());
 
     /* 명령줄에서 실행 파일 이름을 분리해 연다. */
-    //? 기존 코드 //
-    /* file = filesys_open(file_name); */
-    //? 기존 코드 //
-
-    //! 정승영 코드 //
-
-    int count_arg = 0;
+    int arg_cnt = 0;
 
     /* strtok_r()가 원본을 바꾸기 전에 단어 수를 세어 임시 배열 크기를 정한다. */
     for (i = 0; file_name[i] != '\0'; i++) {
         if (file_name[i] != ' ' && (i == 0 || file_name[i - 1] == ' ')) {
-            count_arg++;
+            arg_cnt++;
         }
     }
 
@@ -381,17 +373,15 @@ static bool load(char *file_name, struct intr_frame *if_)
         goto done;
     }
 
-    /* In thread's name, insert the tokenized file_name. */
-    strlcpy(t->name, file_name, sizeof(t->name));
+    /* 스레드 이름을 실행 파일 이름으로 바꾼다. 종료 메시지가 이 이름을 쓴다. */
+    strlcpy(t->name, token, sizeof(t->name));
 
     /* 문자열이 아닌, 각 문자열의 사용자 스택 주소만 저장할 공간이다. */
-    arg_addrs = malloc(count_arg * sizeof *arg_addrs);
+    arg_addrs = malloc(arg_cnt * sizeof *arg_addrs);
     if (arg_addrs == NULL) {
         goto done;
     }
     file = filesys_open(token);
-
-    //! 끝 //
 
     if (file == NULL) {
         printf("load: %s: open failed\n", file_name);
@@ -474,11 +464,10 @@ static bool load(char *file_name, struct intr_frame *if_)
 
     /* 인자 문자열과 argv를 사용자 스택에 배치한다. */
 
-    //! 정승영 코드 //
     while (token != NULL) {
         /* 종료 문자까지 복사하며, 현재 스택 페이지를 벗어나지 않게 한다. */
         size_t bytes = strlen(token) + 1;
-        if (argc >= count_arg || bytes > PGSIZE - (USER_STACK - if_->rsp)) {
+        if (argc >= arg_cnt || bytes > PGSIZE - (USER_STACK - if_->rsp)) {
             goto done;
         }
         /* 스택은 낮은 주소로 자란다. 복사 직후의 주소를 순서대로 기억한다. */
@@ -519,16 +508,12 @@ static bool load(char *file_name, struct intr_frame *if_)
     if_->rsp -= sizeof(void *);
     *(void **)if_->rsp = NULL;
 
-    //! 끝 //
-
     success = true;
 
 done:
     /* 성공과 실패 모두 이 지점에서 임시 자원을 정리한다. */
-    //! 정승영 코드 //
     /* 임시 주소 목록만 해제한다. 문자열은 사용자 스택에 별도로 남아 있다. */
     free(arg_addrs);
-    //! 끝 //
     file_close(file);
     return success;
 }
