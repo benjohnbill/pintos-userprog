@@ -2,6 +2,7 @@
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,7 +24,7 @@
 #endif
 
 static void process_cleanup(void);
-static bool load(const char *file_name, struct intr_frame *if_);
+static bool load(char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
@@ -210,6 +211,8 @@ int process_wait(tid_t child_tid UNUSED)
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+    for (;;)
+        ;
     return -1;
 }
 
@@ -315,6 +318,7 @@ struct ELF64_PHDR {
 /* Abbreviations */
 #define ELF ELF64_hdr
 #define Phdr ELF64_PHDR
+#define ARGS_MAX 64
 
 static bool setup_stack(struct intr_frame *if_);
 static bool validate_segment(const struct Phdr *, struct file *);
@@ -326,7 +330,7 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
  * Stores the executable's entry point into *RIP
  * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
-static bool load(const char *file_name, struct intr_frame *if_)
+static bool load(char *file_name, struct intr_frame *if_)
 {
     struct thread *t = thread_current();
     struct ELF ehdr;
@@ -335,6 +339,12 @@ static bool load(const char *file_name, struct intr_frame *if_)
     bool success = false;
     int i;
 
+    /* Only Passing the File_Name */
+    char *save_ptr, *token;
+    char *argv[ARGS_MAX];
+    int argc = 0;
+
+    file_name = strtok_r(file_name, " ", &save_ptr);
     /* Allocate and activate page directory. */
     t->pml4 = pml4_create();
     if (t->pml4 == NULL) {
@@ -420,12 +430,45 @@ static bool load(const char *file_name, struct intr_frame *if_)
         goto done;
     }
 
+    /* First Loop to allign each char[file_name & arguments]. */
+    for (token = file_name; token != NULL;
+         token = strtok_r(NULL, " ", &save_ptr)) {
+        if (argc >= ARGS_MAX) {
+            goto done;
+        } /* Verify whether overflowed. */
+
+        size_t len = strlen(token) + 1;
+        if_->rsp -= len;
+        argv[argc] = (char *)if_->rsp;
+        /* Make a buffer to utilize when char *[] needed. */
+
+        memcpy((char *)if_->rsp, token, len);
+        argc++;
+    }
+
+    /* Set Padding. */
+    if_->rsp = ROUND_DOWN(if_->rsp, 8);
+    if_->rsp -= 8;
+    char **slot = (char **)if_->rsp;
+    *slot = NULL; /* Current argv[argc] after Loop1. */
+
+    /* Second Loop to allign each (char *)[file_name & arguments]. */
+    for (int j = argc - 1; j >= 0; j--) {
+        slot -= 1; /* Pointer's Operation. Per 8 Bytes. */
+        *slot = argv[j];
+    }
+
     /* Start address. */
     if_->rip = ehdr.e_entry;
+    if_->rsp = (uintptr_t)slot;
+    if_->R.rdi = argc;
+    if_->R.rsi = if_->rsp;
 
-    /* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+    /* Fake address. To make address along with 16 Bytes. */
+    if_->rsp -= 8;
+    *(void **)if_->rsp = NULL;
 
+    // hex_dump(if_->rsp, (void *)if_->rsp, USER_STACK - if_->rsp, true);
     success = true;
 
 done:
