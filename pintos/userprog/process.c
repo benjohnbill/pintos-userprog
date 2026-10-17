@@ -221,6 +221,7 @@ void process_exit(void)
 {
     struct thread *curr = thread_current();
     printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+
     /* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
@@ -345,7 +346,10 @@ static bool load(char *file_name, struct intr_frame *if_)
     char *argv[ARGS_MAX];
     int argc = 0;
 
+    /* In thread's name, insert the tokenized file_name. */
     file_name = strtok_r(file_name, " ", &save_ptr);
+    strlcpy(t->name, file_name, sizeof(t->name));
+
     /* Allocate and activate page directory. */
     t->pml4 = pml4_create();
     if (t->pml4 == NULL) {
