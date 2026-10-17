@@ -13,6 +13,7 @@
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/mmu.h"
@@ -23,7 +24,8 @@
 #endif
 
 static void process_cleanup(void);
-static bool load(const char *file_name, struct intr_frame *if_);
+/* const char *file_name -> char *file_name 로 변경 */
+static bool load(char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
@@ -205,18 +207,26 @@ int process_exec(void *f_name)
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-int process_wait(tid_t child_tid UNUSED)
+int process_wait(tid_t child_tid)
 {
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-    return -1;
+    while (true) {
+        thread_yield();
+    }
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
 {
     struct thread *curr = thread_current();
+
+    /* Kernel threads have no page table; only user processes print. */
+    if (curr->pml4 != NULL) {
+        printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+    }
+
     /* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
@@ -322,17 +332,20 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
                          uint32_t read_bytes, uint32_t zero_bytes,
                          bool writable);
 
-/* Loads an ELF executable from FILE_NAME into the current thread.
- * Stores the executable's entry point into *RIP
- * and its initial stack pointer into *RSP.
- * Returns true if successful, false otherwise. */
-static bool load(const char *file_name, struct intr_frame *if_)
+/* 수정 가능한 FILE_NAME 복사본에서 ELF 실행 파일을 읽는다.
+ * 시작 주소는 RIP, 초기 스택 주소는 RSP에 저장한다.
+ * 성공하면 true, 실패하면 false를 반환한다. */
+static bool load(char *file_name, struct intr_frame *if_)
 {
     struct thread *t = thread_current();
     struct ELF ehdr;
     struct file *file = NULL;
     off_t file_ofs;
     bool success = false;
+
+    /* 사용자 스택에 복사한 문자열의 주소를 임시로 보관한다. */
+    char **arg_addrs = NULL;
+    int argc = 0;
     int i;
 
     /* Allocate and activate page directory. */
@@ -342,8 +355,34 @@ static bool load(const char *file_name, struct intr_frame *if_)
     }
     process_activate(thread_current());
 
-    /* Open executable file. */
-    file = filesys_open(file_name);
+    /* 명령줄에서 실행 파일 이름을 분리해 연다. */
+    int arg_cnt = 0;
+
+    /* strtok_r()가 원본을 바꾸기 전에 단어 수를 세어 임시 배열 크기를 정한다. */
+    for (i = 0; file_name[i] != '\0'; i++) {
+        if (file_name[i] != ' ' && (i == 0 || file_name[i - 1] == ' ')) {
+            arg_cnt++;
+        }
+    }
+
+    /* 복사된 명령줄을 나누고, 첫 토큰을 실행 파일 이름으로 사용한다. */
+    char *save_ptr;
+    char *token = strtok_r(file_name, " ", &save_ptr);
+
+    if (token == NULL) {
+        goto done;
+    }
+
+    /* 스레드 이름을 실행 파일 이름으로 바꾼다. 종료 메시지가 이 이름을 쓴다. */
+    strlcpy(t->name, token, sizeof(t->name));
+
+    /* 문자열이 아닌, 각 문자열의 사용자 스택 주소만 저장할 공간이다. */
+    arg_addrs = malloc(arg_cnt * sizeof *arg_addrs);
+    if (arg_addrs == NULL) {
+        goto done;
+    }
+    file = filesys_open(token);
+
     if (file == NULL) {
         printf("load: %s: open failed\n", file_name);
         goto done;
@@ -423,13 +462,58 @@ static bool load(const char *file_name, struct intr_frame *if_)
     /* Start address. */
     if_->rip = ehdr.e_entry;
 
-    /* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+    /* 인자 문자열과 argv를 사용자 스택에 배치한다. */
+
+    while (token != NULL) {
+        /* 종료 문자까지 복사하며, 현재 스택 페이지를 벗어나지 않게 한다. */
+        size_t bytes = strlen(token) + 1;
+        if (argc >= arg_cnt || bytes > PGSIZE - (USER_STACK - if_->rsp)) {
+            goto done;
+        }
+        /* 스택은 낮은 주소로 자란다. 복사 직후의 주소를 순서대로 기억한다. */
+        if_->rsp -= bytes;
+        strlcpy((char *)if_->rsp, token, bytes);
+        arg_addrs[argc++] = (char *)if_->rsp;
+
+        token = strtok_r(NULL, " ", &save_ptr);
+    }
+
+    /* 포인터를 놓기 전 스택 주소를 포인터 크기의 배수로 맞춘다. */
+    size_t padding = if_->rsp % sizeof(void *);
+    /* 인자 주소 argc개, argv 끝의 NULL, 가짜 반환 주소 한 칸이다. */
+    size_t pointer_bytes = (argc + 2) * sizeof(void *);
+    /* 한 페이지에서 문자열이 이미 차지한 공간을 제외한 나머지와 비교한다. */
+    if (padding + pointer_bytes > PGSIZE - (USER_STACK - if_->rsp)) {
+        goto done;
+    }
+    if_->rsp -= padding;
+    /* 정렬을 위해 비워 둔 바이트를 0으로 채운다. 
+    다만 이 코드는 kpage = palloc_get_page(PAL_USER | PAL_ZERO); 에서
+    새 페이지 전체를 0으로 채우기 때문에 중복 작업이라 불필요한 코드이다.*/
+    memset((void *)if_->rsp, 0, padding);
+
+    /* argv[argc]는 인자 목록의 끝을 알리는 NULL이다. */
+    if_->rsp -= sizeof(void *);
+    *(char **)if_->rsp = NULL;
+    /* 주소를 역순으로 쌓아 argv[0]이 가장 낮은 주소에 오게 한다. */
+    for (i = argc - 1; i >= 0; i--) {
+        if_->rsp -= sizeof(void *);
+        *(char **)if_->rsp = arg_addrs[i];
+    }
+    /* 사용자 프로그램의 첫 두 인자: argc와 argv 배열의 시작 주소. */
+    if_->R.rdi = argc;
+    if_->R.rsi = if_->rsp;
+
+    /* 함수 호출 직후처럼 보이도록 가짜 반환 주소 한 칸을 둔다. */
+    if_->rsp -= sizeof(void *);
+    *(void **)if_->rsp = NULL;
 
     success = true;
 
 done:
-    /* We arrive here whether the load is successful or not. */
+    /* 성공과 실패 모두 이 지점에서 임시 자원을 정리한다. */
+    /* 임시 주소 목록만 해제한다. 문자열은 사용자 스택에 별도로 남아 있다. */
+    free(arg_addrs);
     file_close(file);
     return success;
 }

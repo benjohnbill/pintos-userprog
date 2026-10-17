@@ -2,8 +2,10 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
+#include "threads/mmu.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
+#include "threads/vaddr.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
@@ -38,9 +40,67 @@ void syscall_init(void)
 }
 
 /* The main system call interface */
-void syscall_handler(struct intr_frame *f UNUSED)
+void syscall_handler(struct intr_frame *f)
 {
-    // TODO: Your implementation goes here.
-    printf("system call!\n");
-    thread_exit();
+    uint64_t syscall_num = f->R.rax;
+    bool success = true;
+
+    switch (syscall_num) {
+    case SYS_WRITE: {
+        int fd = (int)f->R.rdi;
+        const void *buffer = (const void *)f->R.rsi;
+        unsigned length = (unsigned)f->R.rdx;
+
+        if (fd != STDOUT_FILENO) {
+            f->R.rax = -1;
+            break;
+        }
+
+        if (length == 0) {
+            f->R.rax = 0;
+            break;
+        }
+
+        if (buffer == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+
+        /* 버퍼의 첫 바이트와 마지막 바이트가 모두 사용자 주소인지 본다. */
+        if (!is_user_vaddr(buffer)) {
+            f->R.rax = -1;
+            break;
+        }
+        if (!is_user_vaddr((uintptr_t)buffer + length - 1)) {
+            f->R.rax = -1;
+            break;
+        }
+
+        /* 시작 페이지부터 마지막 페이지까지 각 페이지가 실제로 매핑되어 있는지 검사 */
+        for (uintptr_t i = (uintptr_t)pg_round_down(buffer);
+             i <= (uintptr_t)pg_round_down((uintptr_t)buffer + length - 1);
+             i += PGSIZE) {
+            if (pml4_get_page(thread_current()->pml4, (void *)i) == NULL) {
+                f->R.rax = -1;
+                success = false;
+                break;
+            }
+        }
+
+        /* 실제 기록한 바이트 수를 반환한다. */
+        if (success) {
+            putbuf((const char *)buffer, length);
+            f->R.rax = length;
+        }
+
+        break;
+    }
+
+    /* 종료 메시지는 process_exit()이 출력한다. 커널이 강제로 끝내는
+     * 경로도 그곳을 지나기 때문이다. */
+    case SYS_EXIT: {
+        thread_current()->exit_status = (int)f->R.rdi;
+        thread_exit();
+    }
+    }
 }

@@ -106,7 +106,8 @@ struct thread {
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint64_t *pml4; /* Page map level 4 */
+    uint64_t *pml4;  /* Page map level 4 */
+    int exit_status; /* exit()에 넘긴 값. 커널이 끝내면 -1 */
 #endif
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */
