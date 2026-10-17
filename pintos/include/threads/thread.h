@@ -19,6 +19,8 @@ enum thread_status {
     THREAD_DYING    /* About to be destroyed. */
 };
 
+/* States to represent how a thread exit. */
+
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -88,34 +90,37 @@ typedef int tid_t;
  * blocked state is on a semaphore wait list. */
 struct thread {
     /* Owned by thread.c. */
-    tid_t tid;                 /* Thread identifier. */
-    enum thread_status status; /* Thread state. */
-    char name[16];             /* Name (for debugging purposes). */
-    int priority;              /* Priority. */
-    int local_priority;        /* priority를 양보 받기 전의 priority */
-    int nice;                  /* mlfqs를 위한 필드 */
-    int recent_cpu;            /* recent_cpu는 고정소수점으로 저장한다. */
-
-    int64_t local_tick; /* 깨어날 절대시간 */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;  /* List element. */
     struct lock *wait_lock; /* 지금 기다리는 lock. */
     struct list held_lock;  /* 지금 가지고 있는 lock의 리스트. */
     struct list_elem all;   /* all list를 위한 list_elem */
+    /* Owned by thread.c. */
+    struct intr_frame tf; /* Information for switching */
+    int64_t local_tick;   /* 깨어날 절대시간 */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint64_t *pml4; /* Page map level 4 */
 #endif
+
+    tid_t tid;          /* Thread identifier. */
+    int priority;       /* Priority. */
+    int local_priority; /* priority를 양보 받기 전의 priority */
+    int nice;           /* mlfqs를 위한 필드 */
+    int recent_cpu;     /* recent_cpu는 고정소수점으로 저장한다. */
+    int exit_status;
+
+    char name[16]; /* Name (for debugging purposes). */
+
+    enum thread_status status; /* Thread state. */
+
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */
     struct supplemental_page_table spt;
 #endif
-
-    /* Owned by thread.c. */
-    struct intr_frame tf; /* Information for switching */
-    unsigned magic;       /* Detects stack overflow. */
+    unsigned magic; /* Detects stack overflow. */
 };
 
 /* If false (default), use round-robin scheduler.

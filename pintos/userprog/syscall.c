@@ -38,9 +38,25 @@ void syscall_init(void)
 }
 
 /* The main system call interface */
-void syscall_handler(struct intr_frame *f UNUSED)
+void syscall_handler(struct intr_frame *f)
 {
-    // TODO: Your implementation goes here.
-    printf("system call!\n");
-    thread_exit();
+    int sys_number = f->R.rax;
+
+    switch (sys_number) {
+    case SYS_WRITE: {
+        if (f->R.rdi == 1) {
+            putbuf((char *)f->R.rsi, f->R.rdx);
+            f->R.rax = f->R.rdx;
+        } else {
+            f->R.rax = 0;
+        }
+        break;
+    }
+
+    case SYS_EXIT: {
+        int status = f->R.rdi;
+        thread_current()->exit_status = status;
+        thread_exit();
+    }
+    }
 }
