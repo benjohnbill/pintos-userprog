@@ -341,13 +341,13 @@ static bool load(char *file_name, struct intr_frame *if_)
     bool success = false;
 
     //! 정승영 코드 //
-    
+
     /* 사용자 스택에 복사한 문자열의 주소를 임시로 보관한다. */
     char **arg_addrs = NULL;
     int argc = 0;
-    
+
     //! 끝 //
-    
+
     int i;
 
     /* Allocate and activate page directory. */
@@ -365,7 +365,7 @@ static bool load(char *file_name, struct intr_frame *if_)
     //! 정승영 코드 //
 
     int count_arg = 0;
-    
+
     /* strtok_r()가 원본을 바꾸기 전에 단어 수를 세어 임시 배열 크기를 정한다. */
     for (i = 0; file_name[i] != '\0'; i++) {
         if (file_name[i] != ' ' && (i == 0 || file_name[i - 1] == ' ')) {
@@ -478,8 +478,7 @@ static bool load(char *file_name, struct intr_frame *if_)
     while (token != NULL) {
         /* 종료 문자까지 복사하며, 현재 스택 페이지를 벗어나지 않게 한다. */
         size_t bytes = strlen(token) + 1;
-        if (argc >= count_arg ||
-            bytes > PGSIZE - (USER_STACK - if_->rsp)) {
+        if (argc >= count_arg || bytes > PGSIZE - (USER_STACK - if_->rsp)) {
             goto done;
         }
         /* 스택은 낮은 주소로 자란다. 복사 직후의 주소를 순서대로 기억한다. */
