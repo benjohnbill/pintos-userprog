@@ -20,4 +20,23 @@ struct child_status {
     struct list_elem elem; /* 부모의 children 목록에 연결할 요소 */
 };
 
+struct process_start_info {
+    char *file_name;                   // thread_create 함수에 전달할 file_name
+    struct child_status *child_status; // thread_create 함수에 전달할 자식 정보
+};
+
+/* 부모의 실행 상태를 자식에게 전달하고 주소 공간 복제가 끝날 때까지 부모와 자식을 동기화
+   child_status는 fork 이후 wait()/exit()에서 계속 사용하고,
+   fork_start_info 자체는 fork 준비가 끝나면 부모가 해제한다. */
+struct fork_start_info {
+    struct thread *parent;       //부모의 페이지 테이블을 참조하기 위한 포인터
+    struct intr_frame parent_if; // 시스템 콜 당시 부모의 레지스터 상태 복사본
+
+    struct semaphore
+        fork_sema; // 자식의 복제가 끝날 떄까지 부모를 재우는 세마포어
+    bool is_forked;
+
+    struct child_status *child_status; // wait()과 exit()이 공유할 자식 상태
+};
+
 #endif /* userprog/process.h */

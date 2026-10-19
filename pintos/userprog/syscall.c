@@ -112,5 +112,14 @@ void syscall_handler(struct intr_frame *f)
         thread_current()->exit_status = (int)f->R.rdi;
         thread_exit();
     }
+
+    /* 첫 번째 인자 레지스터에서 자식 이름을 받고
+       현재 사용자 실행 문맥과 함꼐 process_fork()에 전달한다.
+       반환된 자식 tid 또는 TID_ERROR를 반환 레지스터에 저장한다. */
+    case SYS_FORK: {
+        const char *thread_name = (const char *)f->R.rdi;
+        f->R.rax = process_fork(thread_name, f);
+        break;
+    }
     }
 }
