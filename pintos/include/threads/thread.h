@@ -108,6 +108,17 @@ struct thread {
     /* Owned by userprog/process.c. */
     uint64_t *pml4;  /* Page map level 4 */
     int exit_status; /* exit()에 넘긴 값. 커널이 끝내면 -1 */
+
+    //! 정승영 코드 //
+
+    /* 부모 역할: 직접 만든 자식들의 child_info를 이 목록으로 찾는다. */
+    struct list children;
+    /* 자식 역할: 부모와 공유하는 자신의 종료 기록을 가리킨다.
+     * 부모에게서 만들어진 자식이 아니면 NULL이다. */
+    struct child_info *child_info;
+
+    //! 끝 //
+
 #endif
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */

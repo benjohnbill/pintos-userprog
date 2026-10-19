@@ -19,16 +19,41 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+//! 정승영 코드 //
+/* 자식 종료를 기다리고 알릴 때 사용할 세마포어 함수의 선언. */
+#include "threads/synch.h"
+//! 끝 //
 #ifdef VM
 #include "vm/vm.h"
 #endif
+
+//! 정승영 코드 //
+/*
+ * 자식 한 명의 종료 기록. 부모의 children 목록에 들어가고,
+ * 자식의 thread.child_info도 같은 기록을 가리킨다.
+ * 자식의 thread 구조체가 사라져도 부모가 종료 상태를 읽을 수 있도록
+ * 별도로 할당한다. 현재는 부모가 wait()에서 읽은 뒤 해제한다. */
+struct child_info {
+    tid_t tid;                  /* 부모가 기다릴 자식을 찾는 식별자. */
+    int status;                 /* 자식의 exit_status를 부모에게 전할 값. */
+    struct semaphore exit_sema; /* 자식의 종료 통지를 기다리는 세마포어. */
+    struct list_elem elem;      /* 부모의 children 목록에 넣는 연결 고리. */
+
+};
+/*
+ * thread_create()의 마지막 인자는 포인터 하나뿐이다.
+ * 따라서 자식 initd()에 필요한 두 주소를 하나로 묶어 전달한다. */
+struct initd_args {
+    char *fn_copy;                  /* 복사해 둔 명령줄 페이지의 주소. */
+    struct child_info *child_info;  /* 부모와 자식이 공유할 종료 기록. */
+};
+//! 끝 //
 
 static void process_cleanup(void);
 /* const char *file_name -> char *file_name 로 변경 */
 static bool load(char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
-
 /* General process initializer for initd and other process. */
 static void process_init(void)
 {
@@ -40,26 +65,80 @@ static void process_init(void)
  * before process_create_initd() returns. Returns the initd's
  * thread id, or TID_ERROR if the thread cannot be created.
  * Notice that THIS SHOULD BE CALLED ONCE. */
+//! 정승영 코드 //
 tid_t process_create_initd(const char *file_name)
 {
-    char *fn_copy;
     tid_t tid;
+    char *fn_copy;
+    struct child_info *child_info;
+    struct initd_args *args;
+    char thread_name[16];
 
-    /* Make a copy of FILE_NAME.
-	 * Otherwise there's a race between the caller and load(). */
+    /* 자식이 실행되기 전에 부모의 원본 명령줄이 바뀔 수 있으므로 복사한다.
+     * palloc_get_page()로 얻은 이 페이지는 나중에 process_exec()가 해제한다. */
     fn_copy = palloc_get_page(0);
+
     if (fn_copy == NULL) {
         return TID_ERROR;
     }
+
+    /* 스레드 구조체와 별개로 종료 기록을 할당한다.
+     * 자식 스레드가 먼저 사라져도 부모가 이 기록으로 결과를 읽는다. */
+    child_info = malloc(sizeof(struct child_info));
+
+    if (child_info == NULL) {
+        /* 두 번째 할당에 실패했으므로 먼저 확보한 명령줄 페이지만 반납한다. */
+        palloc_free_page(fn_copy);
+        return TID_ERROR;
+    }
+
+    /* 초기값 0: 자식이 sema_up()하기 전까지 부모의 sema_down()은 대기한다.
+     * 자식이 먼저 알렸다면 값이 남아 나중의 sema_down()이 바로 통과한다. */
+    sema_init(&child_info->exit_sema, 0);
     strlcpy(fn_copy, file_name, PGSIZE);
 
-    /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
-    if (tid == TID_ERROR) {
+    /* thread_create()에 넘길 두 주소를 담는 전달용 구조체를 만든다. */
+    args = malloc(sizeof(struct initd_args));
+    if (args == NULL) {
+        /* 전달용 구조체를 만들지 못했으므로 앞서 할당한 자원도 반납한다. */
         palloc_free_page(fn_copy);
+        free(child_info);
+        return TID_ERROR;
     }
+    args->fn_copy = fn_copy;
+    args->child_info = child_info;
+
+    /* 최초 실행 때만 명령줄 첫 단어를 스레드 이름으로 사용한다.
+     * 인자 전달에 쓸 fn_copy는 수정하지 않는다. */
+    const char *program_name = file_name;
+    /* 첫 공백 전까지가 실행 파일 이름이다. 스레드 이름은 최대 15자다. */
+    size_t name_len = strcspn(program_name, " ");
+    if (name_len >= sizeof thread_name) {
+        name_len = sizeof thread_name - 1;
+    }
+    /* memcpy()는 끝 문자를 복사하지 않으므로 직접 붙인다. */
+    memcpy(thread_name, program_name, name_len);
+    thread_name[name_len] = '\0';
+
+    /* 새 스레드의 시작 함수 initd()에 전달용 구조체의 주소 하나를 넘긴다. */
+    tid = thread_create(thread_name, PRI_DEFAULT, initd, args);
+    if (tid == TID_ERROR) {
+        /* 새 스레드가 없으므로 세 할당의 소유권은 여전히 이 함수에 있다. */
+        palloc_free_page(fn_copy);
+        free(child_info);
+        free(args);
+        return TID_ERROR;
+    }
+    /* thread_create()가 성공한 뒤에야 실제 자식 tid를 알 수 있다.
+     * 자식이 이미 실행되거나 종료됐더라도 기록은 아직 부모가 보유한다. */
+    child_info->tid = tid;
+
+    /* 부모가 process_wait(tid)에서 이 자식의 종료 기록(child_info)을
+     * 찾을 수 있도록 부모의 children 목록에 연결한다. */
+    list_push_back(&thread_current()->children, &child_info->elem);
     return tid;
 }
+//! 끝 //
 
 /* A thread function that launches first user process. */
 static void initd(void *f_name)
@@ -67,12 +146,25 @@ static void initd(void *f_name)
 #ifdef VM
     supplemental_page_table_init(&thread_current()->spt);
 #endif
+    //! 정승영 코드 //
+    /* thread_create()의 마지막 인자로 받은 void *를 원래 타입으로 읽는다. */
+    struct initd_args *args = f_name;
 
+    /* 부모가 만든 종료 기록을 자식도 가리키게 한다.
+     * 이후 process_exit()가 이 주소를 통해 상태를 기록하고 부모를 깨운다. */
+    thread_current()->child_info = args->child_info;
+    /* 전달용 구조체를 해제한 뒤에도 명령줄 주소를 사용할 수 있게 보관한다. */
+    char *fn_copy = args->fn_copy;
+    /* 전달용 구조체만 해제한다. fn_copy와 child_info는 별도로 할당됐다. */
+    free(args);
     process_init();
 
-    if (process_exec(f_name) < 0) {
+    /* process_exec()가 명령줄 페이지를 사용한 뒤 해제한다.
+     * 성공하면 유저 모드로 전환하므로 여기로 돌아오지 않는다. */
+    if (process_exec(fn_copy) < 0) {
         PANIC("Fail to launch initd\n");
     }
+    //! 끝 //
     NOT_REACHED();
 }
 
@@ -205,17 +297,37 @@ int process_exec(void *f_name)
  * been successfully called for the given TID, returns -1
  * immediately, without waiting.
  *
- * This function will be implemented in problem 2-2.  For now, it
- * does nothing. */
+ * 현재 구현은 초기 프로세스의 종료 대기를 위한 기초 단계다.
+ * fork로 만든 자식과 부모의 선종료 등은 이후에 확장해야 한다. */
+//! 정승영 코드 //
 int process_wait(tid_t child_tid)
 {
-    /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-    while (true) {
-        thread_yield();
-    }
+    /* 이 함수를 호출한 부모 스레드의 자식 목록만 검사한다.
+     * 따라서 다른 부모의 자식 tid로는 기다릴 수 없다. */
+    struct thread *parent = thread_current();
+
+    /* list에는 child_info 자체가 아니라 그 안의 elem이 들어 있다. */
+    for (struct list_elem *e = list_begin(&parent->children);
+        e != list_end(&parent->children); e = list_next(e)) {
+            /* elem의 주소로 원래 child_info 구조체의 주소를 얻는다. */
+            struct child_info *info = list_entry(e, struct child_info, elem);
+            if (info->tid == child_tid) {
+                /* 자식이 종료를 알릴 때까지 부모를 재운다.
+                 * 이미 알렸다면 세마포어 값 덕분에 바로 진행한다. */
+                sema_down(&info->exit_sema);
+                /* 자식이 기록한 결과를 해제 전에 지역 변수로 복사한다. */
+                int status = info->status;
+                /* 한 번 기다린 자식의 기록을 목록에서 제거하고 해제한다.
+                 * 같은 tid로 다시 wait하면 목록에서 찾지 못해 -1이 된다. */
+                list_remove(&info->elem);
+                free(info);
+                return status;
+            }
+        }
+    /* 해당 tid가 직접 만든 자식 목록에 없으면 기다리지 않는다. */
+    return -1;
 }
+//! 끝 //
 
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
@@ -226,13 +338,20 @@ void process_exit(void)
     if (curr->pml4 != NULL) {
         printf("%s: exit(%d)\n", curr->name, curr->exit_status);
     }
-
-    /* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
+    /* 프로세스 자원을 정리한 다음 부모에게 종료를 알린다. */
 
     process_cleanup();
+    //! 정승영 코드 //
+    /* 부모와 공유하는 종료 기록이 있는 자식만 부모에게 통지한다.
+     * 일반 커널 스레드는 child_info가 NULL이므로 이 분기를 건너뛴다. */
+    if (curr->child_info != NULL) {
+        /* 먼저 상태를 기록해야, 깨어난 부모가 올바른 값을 읽는다. */
+        curr->child_info->status = curr->exit_status;
+        /* process_wait()에서 잠든 부모를 깨우거나 통지를 남긴다. */
+        sema_up(&curr->child_info->exit_sema);
+    }
+    //! 끝 //
+
 }
 
 /* Free the current process's resources. */
@@ -372,9 +491,6 @@ static bool load(char *file_name, struct intr_frame *if_)
     if (token == NULL) {
         goto done;
     }
-
-    /* 스레드 이름을 실행 파일 이름으로 바꾼다. 종료 메시지가 이 이름을 쓴다. */
-    strlcpy(t->name, token, sizeof(t->name));
 
     /* 문자열이 아닌, 각 문자열의 사용자 스택 주소만 저장할 공간이다. */
     arg_addrs = malloc(arg_cnt * sizeof *arg_addrs);

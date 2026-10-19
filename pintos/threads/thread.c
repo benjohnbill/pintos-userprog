@@ -650,9 +650,8 @@ static void init_thread(struct thread *t, const char *name, int priority)
     ASSERT(PRI_MIN <= priority && priority <= PRI_MAX);
     ASSERT(name != NULL);
 
-    memset(
-        t, 0,
-        sizeof *t); /*nice 와 recent_cpu는 이 줄 때문에 따로 안 해도 0으로 초기화 됨 */
+    /* nice와 recent_cpu도 여기서 0으로 초기화된다. */
+    memset(t, 0, sizeof *t);
     t->status = THREAD_BLOCKED;
     strlcpy(t->name, name, sizeof t->name);
     t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
@@ -661,6 +660,18 @@ static void init_thread(struct thread *t, const char *name, int priority)
     t->local_priority = priority;
     list_init(&(t->held_lock));
     t->wait_lock = NULL;
+
+    //! 정승영 코드 //
+
+#ifdef USERPROG
+    /* 모든 스레드는 자식 목록을 빈 상태로 시작한다.
+     * 초기화하지 않은 목록은 list_begin() 등에 넘길 수 없다. */
+    list_init(&t->children);
+    /* 부모가 종료 기록을 연결하기 전에는 가리킬 기록이 없다. */
+    t->child_info = NULL;
+#endif
+
+    //! 끝 //
 
     if (thread_mlfqs) {
         enum intr_level old_level = intr_disable();
