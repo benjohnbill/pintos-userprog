@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Sync one person's checks on the team plan page with the latest test results.
-Called by `make pcheck WHO=<name>`.
+Called by `make pcheck` and `make ptest`.
 
   --who NAME   whose blocks to sync (benjohnbill, Hannuri-Song, JSZeroDev);
-               the shared blocks are synced too
+               the shared blocks are synced too. Default: git config pintos.who
   --dry-run    print the changes without writing them
   --build DIR  build directory (default: pintos/userprog/build)
   --plan SRC   plan URL or local file (default: the published team-plan.json)
@@ -29,8 +29,9 @@ PLAN = 'https://benjohnbill.github.io/study/week08/team-plan.json'
 DB = ('https://pintos-userprog-default-rtdb.asia-southeast1'
       '.firebasedatabase.app/team-plan/checks')
 
+# Run from the repository root; git may refuse a container mount it does not own.
 ROOT = subprocess.run(['git', 'rev-parse', '--show-toplevel'],
-                      capture_output=True, text=True, check=True).stdout.strip()
+                      capture_output=True, text=True).stdout.strip() or os.getcwd()
 
 
 def fetch(url, method='GET', body=None):
@@ -86,7 +87,9 @@ def want_auto(rule, results):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--who', required=True)
+    ap.add_argument('--who', default=subprocess.run(
+        ['git', 'config', 'pintos.who'],
+        capture_output=True, text=True).stdout.strip())
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--build', default=os.path.join(ROOT, 'pintos/userprog/build'))
     ap.add_argument('--plan', default=PLAN, help='plan URL or local file')
@@ -99,7 +102,8 @@ def main():
         plan = fetch(args.plan)
     people = sorted({p for d in plan['days'] for p in d['who'] if p != '*'})
     if args.who not in people:
-        sys.exit(f'unknown WHO={args.who!r}; one of: {", ".join(people)}')
+        sys.exit(f'unknown WHO={args.who!r}; one of: {", ".join(people)}\n'
+                 f'set it once: git config pintos.who <name>')
 
     results, stale = read_results(args.build)
     checks = fetch(DB + '.json') or {}
