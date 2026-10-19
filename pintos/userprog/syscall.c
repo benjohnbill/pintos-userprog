@@ -9,6 +9,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "threads/palloc.h"
 #include "userprog/process.h"
 
 void syscall_entry(void);
@@ -121,5 +122,53 @@ void syscall_handler(struct intr_frame *f)
         f->R.rax = process_fork(thread_name, f);
         break;
     }
+    //! 정승영 코드 //
+    case SYS_EXEC: {
+        /* rdi는 현재 사용자 메모리에 있는 명령줄 주소다.
+         * process_exec()가 기존 주소 공간을 없애므로 커널 페이지에 복사한다. */
+        const char *user_cmd = (const char *)f->R.rdi;
+        char *cmd_copy = palloc_get_page(0);
+        int i = 0;
+
+        /* 할당에 실패했다면 해제할 페이지 없이 비정상 종료한다. */
+        if (cmd_copy == NULL) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        /* 널 종료 문자까지 복사하되 커널 페이지 한 장을 넘지 않는다.
+         * 사용자 메모리는 읽기 전에 주소 범위와 실제 매핑을 확인한다. */
+        for (; i < PGSIZE; i++) {
+            if (!is_user_vaddr(user_cmd + i)) {
+                palloc_free_page(cmd_copy);
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+            /* 사용자 주소 범위 안이어도 매핑되지 않았을 수 있다. */
+            if (!pml4_get_page(thread_current()->pml4, user_cmd + i)) {
+                palloc_free_page(cmd_copy);
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+            cmd_copy[i] = user_cmd[i];
+            /* 끝 문자까지 복사해야 새 명령줄이 C 문자열이 된다. */
+            if (user_cmd[i] == '\0') {
+                break;
+            }
+        }
+        /* 한 페이지 안에서 끝 문자를 못 찾았다면 적재할 수 없다. */
+        if (i == PGSIZE) {
+            palloc_free_page(cmd_copy);
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        /* process_exec()이 복사 페이지를 해제한다. 성공하면 돌아오지 않고,
+         * 적재 실패로 돌아오면 기존 주소 공간이 없으므로 종료한다. */
+        if (process_exec(cmd_copy) == -1) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+    }
+    //! 끝 //
     }
 }
