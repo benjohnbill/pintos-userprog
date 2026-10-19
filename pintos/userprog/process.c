@@ -44,10 +44,11 @@ static void process_init(void)
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t process_create_initd(const char *file_name)
 {
-    struct process_start_info *start_info;
-    struct child_status *child_status;
-    char *fn_copy;
     tid_t tid;
+    char *fn_copy;
+    char thread_name[16];
+    struct child_status *child_status;
+    struct process_start_info *start_info;
 
     /* start_info 동적 할당 */
     start_info = malloc(sizeof *start_info);
@@ -81,18 +82,20 @@ tid_t process_create_initd(const char *file_name)
     start_info->file_name = fn_copy;
     start_info->child_status = child_status;
 
-    /* 해야할 일:
-     1. child_status 동적 할당 v
-     2. status, is_waited, exit_sema 초기화 v
-     3. tread_create() v
-     4. 생성된 tid 기록 v
-     5. 부모의 children 목록에 등록 v
-     
-     현재 thread_create()은 fn_copy만 전달하고 있는데 이제 child_status도 전달해야 함.
-     따라서 두 정보를 묶는 구조체가 하나 더 필요...*/
+    /* 최초 실행 때만 명령줄 첫 단어를 스레드 이름으로 사용한다.
+     * 인자 전달에 쓸 fn_copy는 수정하지 않는다. */
+    const char *program_name = file_name;
+    /* 첫 공백 전까지가 실행 파일 이름이다. 스레드 이름은 최대 15자다. */
+    size_t name_len = strcspn(program_name, " ");
+    if (name_len >= sizeof thread_name) {
+        name_len = sizeof thread_name - 1;
+    }
+    /* memcpy()는 끝 문자를 복사하지 않으므로 직접 붙인다. */
+    memcpy(thread_name, program_name, name_len);
+    thread_name[name_len] = '\0';
 
     /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(file_name, PRI_DEFAULT, initd, start_info);
+    tid = thread_create(thread_name, PRI_DEFAULT, initd, start_info);
     if (tid == TID_ERROR) {
         palloc_free_page(fn_copy);
         free(start_info);
@@ -593,9 +596,6 @@ static bool load(char *file_name, struct intr_frame *if_)
     if (token == NULL) {
         goto done;
     }
-
-    /* 스레드 이름을 실행 파일 이름으로 바꾼다. 종료 메시지가 이 이름을 쓴다. */
-    strlcpy(t->name, token, sizeof(t->name));
 
     /* 문자열이 아닌, 각 문자열의 사용자 스택 주소만 저장할 공간이다. */
     arg_addrs = malloc(arg_cnt * sizeof *arg_addrs);
