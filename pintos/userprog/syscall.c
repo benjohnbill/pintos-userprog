@@ -1,10 +1,13 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
+#include "threads/palloc.h"
+#include "threads/vaddr.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
@@ -71,6 +74,18 @@ void syscall_handler(struct intr_frame *f)
 
     case SYS_WAIT: {
         f->R.rax = process_wait((tid_t)f->R.rdi);
+        break;
+    }
+
+    case SYS_EXEC: {
+        char *fn_copy = palloc_get_page(0);
+        if (fn_copy == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+
+        strlcpy(fn_copy, (const char *)f->R.rdi, PGSIZE);
+        f->R.rax = process_exec(fn_copy);
         break;
     }
     }

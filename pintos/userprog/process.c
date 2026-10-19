@@ -53,8 +53,15 @@ tid_t process_create_initd(const char *file_name)
     }
     strlcpy(fn_copy, file_name, PGSIZE);
 
+    /* Set the process name only when creating the initial process. */
+    char name[sizeof(thread_current()->name)];
+    char *save_ptr;
+    strlcpy(name, file_name, sizeof(name));
+    char *program_name = strtok_r(name, " ", &save_ptr);
+
     /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
+    tid = thread_create(program_name != NULL ? program_name : "", PRI_DEFAULT,
+                        initd, fn_copy);
     if (tid == TID_ERROR) {
         palloc_free_page(fn_copy);
     }
@@ -357,9 +364,8 @@ static bool load(char *file_name, struct intr_frame *if_)
     char *argv[ARGS_MAX];
     int argc = 0;
 
-    /* In thread's name, insert the tokenized file_name. */
+    /* Extract the executable name without changing the process name. */
     file_name = strtok_r(file_name, " ", &save_ptr);
-    strlcpy(t->name, file_name, sizeof(t->name));
 
     /* Allocate and activate page directory. */
     t->pml4 = pml4_create();
