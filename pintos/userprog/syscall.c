@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/mmu.h"
 #include "threads/thread.h"
@@ -169,6 +170,10 @@ void syscall_handler(struct intr_frame *f)
             thread_exit();
         }
     }
-    //! 끝 //
+
+    case SYS_HALT: {
+        power_off();
+        break;
+    }
     }
 }
