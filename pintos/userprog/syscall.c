@@ -9,6 +9,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "userprog/process.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -96,11 +97,29 @@ void syscall_handler(struct intr_frame *f)
         break;
     }
 
+    /* TODO:
+     1. process_wait((tid_t) f->R.rdi) 호출
+     2. 반환된 자식의 status를 f->R.rax에 저장*/
+    case SYS_WAIT: {
+        tid_t child_tid = (tid_t)f->R.rdi;
+        f->R.rax = process_wait(child_tid);
+        break;
+    }
+
     /* 종료 메시지는 process_exit()이 출력한다. 커널이 강제로 끝내는
      * 경로도 그곳을 지나기 때문이다. */
     case SYS_EXIT: {
         thread_current()->exit_status = (int)f->R.rdi;
         thread_exit();
+    }
+
+    /* 첫 번째 인자 레지스터에서 자식 이름을 받고
+       현재 사용자 실행 문맥과 함꼐 process_fork()에 전달한다.
+       반환된 자식 tid 또는 TID_ERROR를 반환 레지스터에 저장한다. */
+    case SYS_FORK: {
+        const char *thread_name = (const char *)f->R.rdi;
+        f->R.rax = process_fork(thread_name, f);
+        break;
     }
     }
 }
