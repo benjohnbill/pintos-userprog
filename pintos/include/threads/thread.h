@@ -104,10 +104,15 @@ struct thread {
     struct list held_lock;  /* 지금 가지고 있는 lock의 리스트. */
     struct list_elem all;   /* all list를 위한 list_elem */
 
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint64_t *pml4;  /* Page map level 4 */
     int exit_status; /* exit()에 넘긴 값. 커널이 끝내면 -1 */
+
+    struct list children; /* 부모가 가진 자식 목록 */
+    struct child_status *child_status; /* child_status를 가리키는 포인터 */
+
 #endif
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */

@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "list.h"
+#include "threads/synch.h"
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
 #include "filesys/directory.h"
@@ -29,6 +31,11 @@ static bool load(char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
+struct process_start_info {
+    char *file_name;                   // thread_create 함수에 전달할 file_name
+    struct child_status *child_status; // thread_create 함수에 전달할 자식 정보
+};
+
 /* General process initializer for initd and other process. */
 static void process_init(void)
 {
@@ -42,35 +49,90 @@ static void process_init(void)
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t process_create_initd(const char *file_name)
 {
+    struct process_start_info *start_info;
+    struct child_status *child_status;
     char *fn_copy;
     tid_t tid;
+
+    /* start_info 동적 할당 */
+    start_info = malloc(sizeof *start_info);
+    if (start_info == NULL) {
+        return TID_ERROR;
+    }
 
     /* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
     fn_copy = palloc_get_page(0);
     if (fn_copy == NULL) {
+        free(start_info);
         return TID_ERROR;
     }
+
+    /* child_status 동적 할당 */
+    child_status = malloc(sizeof *child_status);
+    if (child_status == NULL) {
+        free(start_info);
+        palloc_free_page(fn_copy);
+        return TID_ERROR;
+    }
+
+    /* child_status 초기화 */
+    child_status->status = -1;
+    child_status->is_waited = false;
+    sema_init(&child_status->exit_sema, 0);
+
     strlcpy(fn_copy, file_name, PGSIZE);
 
+    start_info->file_name = fn_copy;
+    start_info->child_status = child_status;
+
+    /* 해야할 일:
+     1. child_status 동적 할당 v
+     2. status, is_waited, exit_sema 초기화 v
+     3. tread_create()
+     4. 생성된 tid 기록
+     5. 부모의 children 목록에 등록
+     
+     현재 thread_create()은 fn_copy만 전달하고 있는데 이제 child_status도 전달해야 함.
+     따라서 두 정보를 묶는 구조체가 하나 더 필요...*/
+
     /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
+    tid = thread_create(file_name, PRI_DEFAULT, initd, start_info);
     if (tid == TID_ERROR) {
         palloc_free_page(fn_copy);
+        free(start_info);
+        free(child_status);
+        return TID_ERROR;
     }
+
+    child_status->tid = tid;
+    list_push_back((&thread_current()->children), &child_status->elem);
     return tid;
 }
 
 /* A thread function that launches first user process. */
-static void initd(void *f_name)
+/* problem to be solved:
+ thread_create()에 start_info()를 넘기는데, 현재 initd()는 여전히 받은 void *를 명령줄인 f_name으로 간주하여 그대로
+ process_exec()에 전달 따라서
+ 1. void *를 struct process_start_info *로 해석 v
+ 2. 현재 자식 스레드의 child_status 포인터를 연결 v
+ 3. file_name을 별도로 꺼냄 v
+ 4. 전달용 start_info만 해제 v
+ 5. 꺼낸 file_name을 process_exec()에 전달 */
+static void initd(void *aux_)
 {
 #ifdef VM
     supplemental_page_table_init(&thread_current()->spt);
 #endif
+    struct process_start_info *start_info = aux_;
+    char *file_name = start_info->file_name;
+
+    thread_current()->child_status = start_info->child_status;
+    free(start_info);
 
     process_init();
 
-    if (process_exec(f_name) < 0) {
+    if (process_exec(file_name) < 0) {
         PANIC("Fail to launch initd\n");
     }
     NOT_REACHED();
@@ -207,16 +269,80 @@ int process_exec(void *f_name)
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
+
+/* process_wait의 흐름과 TODO:
+  1. child_tid가 현재 프로세스의 자식인지 검색 자식이 아니면 -1
+  2. 이미 한 번 wait한 자식이면 -1
+  3. 자식이 아직 실행 중이면 부모를 재움
+  4. 자식이 종료하면서 부모를 꺠움
+  5. 자식이 남긴 exit_status를 읽음
+  6. 자식 정보를 목록에서 제거하고 정리
+  7. exit_stauts 반환
+  
+  required:
+  부모 자식의 관계 정보를 저장할 새로운 자료구조
+  - 부모가 가진 자식 목록 <- thread 구조체에 저장하면 될듯
+  - 자식의 tid
+  - 자식이 남긴 status
+  - 자식이 종료했는지 여부
+  - 해당 자식이 이미 process_wait()을 호출했는지 여부
+  - 자식 종료를 기다릴 동기화 객체
+  - 부모의 자식 목록에 연결할 list-elem 
+
+  struct thread
+  - 부모일 때 : list_children
+  - 자식일 때 : child_status를 가리킬 포인터
+
+  struct child_status
+  - tid
+  - status
+  - bool is_exited
+  - bool is_waited
+  - 종료 대기용 semaphore
+  - 부모 목록 연결용 list_elem
+  */
 int process_wait(tid_t child_tid)
 {
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-    while (true) {
-        thread_yield();
+    struct list *children = &thread_current()->children;
+    struct list_elem *e = list_begin(children);
+
+    struct child_status *child_status = NULL;
+    int status;
+
+    while (e != list_end(children)) {
+        child_status = list_entry(e, struct child_status, elem);
+        if (child_status->tid == child_tid) {
+            break;
+        }
+        e = list_next(e);
     }
+
+    if (e == list_end(children)) {
+        return -1;
+    }
+
+    if (child_status->is_waited == false) {
+        child_status->is_waited = true;
+        sema_down(&child_status->exit_sema);
+    } else {
+        return -1;
+    }
+    status = child_status->status;
+
+    list_remove(&child_status->elem);
+    free(child_status);
+    return status;
 }
 
+/* process_exit의 흐름
+ 1. 현재 스레드의 종료 메시지 출력
+ 2. child_status가 있는지 확인
+ 3. curr->exit_status를 child_status->status에 복사
+ 4. 프로세스 주소 공간 정리
+ 5. exit_sema를 sema_up()해서 부모 깨우기 */
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
 {
@@ -232,7 +358,14 @@ void process_exit(void)
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
+    if (curr->child_status != NULL) {
+        curr->child_status->status = curr->exit_status;
+    }
     process_cleanup();
+
+    if (curr->child_status != NULL) {
+        sema_up(&curr->child_status->exit_sema);
+    }
 }
 
 /* Free the current process's resources. */

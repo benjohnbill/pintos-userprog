@@ -9,6 +9,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "userprog/process.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -93,6 +94,15 @@ void syscall_handler(struct intr_frame *f)
             f->R.rax = length;
         }
 
+        break;
+    }
+
+    /* TODO:
+     1. process_wait((tid_t) f->R.rdi) 호출
+     2. 반환된 자식의 status를 f->R.rax에 저장*/
+    case SYS_WAIT: {
+        tid_t child_tid = (tid_t)f->R.rdi;
+        f->R.rax = process_wait(child_tid);
         break;
     }
 
