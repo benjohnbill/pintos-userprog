@@ -667,6 +667,13 @@ static void init_thread(struct thread *t, const char *name, int priority)
         list_push_front(&all_list, &(t->all));
         intr_set_level(old_level);
     }
+
+/* process_wait()을 위한 구조체 initializing */
+#ifdef USERPROG
+    list_init(&t->children);
+    t->child_status = NULL;
+    t->exit_status = -1;
+#endif
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
