@@ -1,12 +1,14 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "userprog/process.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -40,9 +42,14 @@ void syscall_init(void)
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f)
 {
-    int sys_number = f->R.rax;
+    int sys_num = f->R.rax;
 
-    switch (sys_number) {
+    switch (sys_num) {
+    case SYS_HALT: {
+        power_off();
+        break;
+    }
+
     case SYS_WRITE: {
         if (f->R.rdi == 1) {
             putbuf((char *)f->R.rsi, f->R.rdx);
@@ -56,9 +63,15 @@ void syscall_handler(struct intr_frame *f)
     case SYS_EXIT: {
         int status = f->R.rdi;
         thread_current()->exit_status = status;
+        // thread_current()->record.exit_status = status;
         printf("%s: exit(%d)\n", thread_current()->name,
                thread_current()->exit_status);
         thread_exit();
+    }
+
+    case SYS_WAIT: {
+        f->R.rax = process_wait((tid_t)f->R.rdi);
+        break;
     }
     }
 }

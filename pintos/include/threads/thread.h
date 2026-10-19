@@ -4,7 +4,9 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -88,10 +90,20 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+struct record{
+    struct list_elem elem;
+    struct semaphore sema;
+
+    tid_t tid;
+    int exit_status;
+};
+
 struct thread {
     /* Owned by thread.c. */
 
     /* Shared between thread.c and synch.c. */
+    struct record *record; /* Each Record from Child Process. */
+    struct list child_list; /* Waiting list for children as a parent process */
     struct list_elem elem;  /* List element. */
     struct lock *wait_lock; /* 지금 기다리는 lock. */
     struct list held_lock;  /* 지금 가지고 있는 lock의 리스트. */
@@ -121,6 +133,10 @@ struct thread {
 #endif
     unsigned magic; /* Detects stack overflow. */
 };
+
+// 이미 thread 안에 list_elem 멤버를 하나 더 전용으로 만들었다고 치고.
+// 그렇게 하면, 실제로 list에 넣는다고 하는게, 정확히는 list_push_back(list ,a->elem); 이렇게 되고, 그 안의 맨 마지막 list_elem에다가 list_entry()를 쓰면, 실제 자식 thread를 특정해서 뽑기가 가능.
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

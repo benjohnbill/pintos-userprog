@@ -13,6 +13,7 @@
 #include "intrinsic.h"
 #include "threads/fixed_point.h" // 고정소수점 파일 헤더
 #include "devices/timer.h"
+#include "threads/malloc.h"
 
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -206,6 +207,13 @@ void thread_print_stats(void)
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
+
+void record_init(struct thread *child, struct record *r)
+{
+    r->tid = child->tid;
+    sema_init(&r->sema, 0);
+}
+
 tid_t thread_create(const char *name, int priority, thread_func *function,
                     void *aux)
 {
@@ -240,6 +248,12 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
         t->recent_cpu = thread_current()->recent_cpu;
         thread_calc_priority(t);
     }
+
+    /* Create new record for parent thread. */
+    struct record *r = malloc(sizeof(*r));
+    t->record = r; // The allocation of Child's record.
+    list_push_back(&thread_current()->child_list, &t->record->elem);
+    record_init(t, r);
 
     /* Add to run queue. */
     thread_unblock(t);
@@ -660,6 +674,7 @@ static void init_thread(struct thread *t, const char *name, int priority)
     t->magic = THREAD_MAGIC;
     t->local_priority = priority;
     list_init(&(t->held_lock));
+    list_init(&(t->child_list)); // child_list init.
     t->wait_lock = NULL;
 
     if (thread_mlfqs) {

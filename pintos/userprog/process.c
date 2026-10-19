@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "threads/synch.h"
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
 #include "filesys/directory.h"
@@ -206,26 +207,38 @@ int process_exec(void *f_name)
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-int process_wait(tid_t child_tid UNUSED)
+int process_wait(tid_t child_tid)
 {
-    /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-    for (;;) {
-        thread_yield();
+    // sema_down(struct semaphore *);
+    struct list_elem *cur;
+
+    for (cur = list_begin(&thread_current()->child_list);
+         cur != list_end(&thread_current()->child_list); cur = list_next(cur)) {
+        struct record *r = list_entry(cur, struct record, elem);
+
+        if (r->tid == child_tid) {
+            sema_down(&r->sema);
+            return r->exit_status;
+        }
     }
+    return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
 {
-
+    struct thread *curr = thread_current();
     /* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
     process_cleanup();
+
+    if (curr->record != NULL) {
+        curr->record->exit_status = curr->exit_status;
+        sema_up(&curr->record->sema);
+    }
 }
 
 /* Free the current process's resources. */
