@@ -44,7 +44,7 @@ static void process_init(void)
 int process_add_file(struct file *file)
 {
     struct thread *current = thread_current();
-    struct file_descriptor *fd_entry;
+    struct fd_entry *fd_entry;
 
     if (file == NULL) {
         return -1;
@@ -63,16 +63,16 @@ int process_add_file(struct file *file)
     return fd_entry->fd;
 }
 
-struct file *process_get_file(int fd)
+struct file *process_find_file(int fd)
 {
     struct thread *current = thread_current();
     struct list_elem *elem;
-    struct file_descriptor *fd_entry;
+    struct fd_entry *fd_entry;
 
     elem = list_begin(&current->fd_list);
 
     while (elem != list_end(&current->fd_list)) {
-        fd_entry = list_entry(elem, struct file_descriptor, elem);
+        fd_entry = list_entry(elem, struct fd_entry, elem);
         if (fd_entry->fd == fd) {
             return fd_entry->file;
         }
@@ -85,12 +85,12 @@ bool process_close_file(int fd)
 {
     struct thread *current = thread_current();
     struct list_elem *elem;
-    struct file_descriptor *fd_entry;
+    struct fd_entry *fd_entry;
 
     elem = list_begin(&current->fd_list);
 
     while (elem != list_end(&current->fd_list)) {
-        fd_entry = list_entry(elem, struct file_descriptor, elem);
+        fd_entry = list_entry(elem, struct fd_entry, elem);
         if (fd_entry->fd == fd) {
             file_close(fd_entry->file);
             list_remove(&fd_entry->elem);
