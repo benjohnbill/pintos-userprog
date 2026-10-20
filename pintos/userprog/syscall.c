@@ -240,7 +240,73 @@ void syscall_handler(struct intr_frame *f)
         break;
     }
 
+    /* 로직
+       1. 시작 주소가 사용자 주소인지 확인
+       2. 마지막 주소 buffer + length -1을 계산
+       3. 주소 계산에서 정수 오버플로가 발생하지 않았는지 확인
+       4. 마지막 주소도 사용자 주소인지 확인
+       5. 시작 페이지부터 마지막 페이지까지 매핑 여부 확인*/
     case SYS_READ: {
+        int fd = (int)f->R.rdi;
+        void *buffer = (void *)f->R.rsi;
+        unsigned length = (unsigned)f->R.rdx;
+        struct file *file;
+
+        if (length == 0) {
+            f->R.rax = 0;
+            break;
+        }
+        if (buffer == NULL) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        if (!is_user_vaddr(buffer)) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        if ((uintptr_t)buffer + length - 1 < (uintptr_t)buffer) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        if (!is_user_vaddr((void *)((uintptr_t)buffer + length - 1))) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        for (uintptr_t page_addr = (uintptr_t)pg_round_down(buffer);
+             page_addr <=
+             (uintptr_t)pg_round_down((uintptr_t)buffer + length - 1);
+             page_addr += PGSIZE) {
+            if (pml4_get_page(thread_current()->pml4, (void *)page_addr) ==
+                NULL) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+        }
+
+        if (fd == STDOUT_FILENO) {
+            f->R.rax = -1;
+            break;
+        }
+
+        if (fd == STDIN_FILENO) {
+            for (unsigned i = 0; i < length; i++) {
+                ((uint8_t *)buffer)[i] = input_getc();
+            }
+            f->R.rax = length;
+            break;
+        }
+
+        file = process_find_file(fd);
+        if (file == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+
+        f->R.rax = file_read(file, buffer, length);
+        break;
     }
     }
 }
