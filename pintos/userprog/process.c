@@ -708,7 +708,7 @@ static bool load(char *file_name, struct intr_frame *if_)
         goto done;
     }
     if_->rsp -= padding;
-    /* 정렬을 위해 비워 둔 바이트를 0으로 채운다. 
+    /* 정렬을 위해 비워 둔 바이트를 0으로 채운다.
     다만 이 코드는 kpage = palloc_get_page(PAL_USER | PAL_ZERO); 에서
     새 페이지 전체를 0으로 채우기 때문에 중복 작업이라 불필요한 코드이다.*/
     memset((void *)if_->rsp, 0, padding);
