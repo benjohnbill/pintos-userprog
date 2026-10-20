@@ -113,6 +113,9 @@ struct thread {
     struct list children; /* 부모가 가진 자식 목록 */
     struct child_status *child_status; /* child_status를 가리키는 포인터 */
 
+    struct list fd_list; /* 열린 파일 항목들을 연결할 리스트 */
+    int next_fd; /* 다음에 발급할 파일 디스크립터 번호를 저장 */
+
 #endif
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */
