@@ -19,7 +19,7 @@ int process_add_file(struct file *file);
 
 /* 현재 프로세스에서 fd에 연결된 파일을 반환한다.
    유효한 fd가 아니면 NULL을 반환한다. */
-struct file *process_get_file(int fd);
+struct file *process_find_file(int fd);
 
 /* 현재 프로세스의 fd를 닫고 목록에서 제거한다.
    성공하면 true, 유효한 fd가 아니면 false를 반환한다. */
@@ -52,7 +52,7 @@ struct fork_start_info {
     struct child_status *child_status; // wait()과 exit()이 공유할 자식 상태
 };
 
-struct file_descriptor {
+struct fd_entry {
     int fd;
     struct file *file;
     struct list_elem elem;
