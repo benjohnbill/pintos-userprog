@@ -11,6 +11,9 @@
 #include "intrinsic.h"
 #include "threads/palloc.h"
 #include "userprog/process.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "devices/input.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -169,6 +172,75 @@ void syscall_handler(struct intr_frame *f)
             thread_exit();
         }
     }
-    //! 끝 //
+        //! 끝 //
+
+    /* 로직
+       1. f->R.rdi에서 사용자 파일명 포인터를 받는다.
+       2. 파일명이 NULL인지, 사용자 주소인지, NULL 문자까지 매핑되었는지 검사한다.
+       3. filesys_open()으로 struct *file을 얻는다.
+       4. 실패하면 -1 반환
+       5. 성공하면 process_add_file()로 fd를 발급한다.
+       6. fd 발급이 실패했다면 방금 연 파일을 닫는다.
+       7. 성공한 fd를 f->R.rax에 저장 */
+    case SYS_OPEN: {
+        const char *file_name = (const char *)f->R.rdi;
+        size_t file_idx;
+        struct file *file;
+        int fd;
+
+        if (file_name == NULL) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        for (file_idx = 0; file_idx < PGSIZE; file_idx++) {
+            if (!is_user_vaddr(file_name + file_idx)) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+
+            if (!pml4_get_page(thread_current()->pml4, file_name + file_idx)) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+
+            if (file_name[file_idx] == '\0') {
+                break;
+            }
+        }
+
+        if (file_idx == PGSIZE) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        file = filesys_open(file_name);
+        if (file == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+        fd = process_add_file(file);
+        if (fd == -1) {
+            file_close(file);
+        }
+
+        f->R.rax = fd;
+        break;
+    }
+
+    /* 로직
+       1. f->R.rdi에서 int fd를 꺼낸다
+       2. process_close_file(fd)를 호출한다.
+       3. 반환값은 사용자에게 돌려줄 필요가 없다.
+       4. 존재하지 않는 fd라면 process_close_file()이 false를 반환하지만 무시 가능. */
+    case SYS_CLOSE: {
+        int fd = (int)f->R.rdi;
+
+        process_close_file(fd);
+        break;
+    }
+
+    case SYS_READ: {
+    }
     }
 }
