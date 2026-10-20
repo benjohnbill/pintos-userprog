@@ -31,10 +31,76 @@ static bool load(char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
+static bool
+extract_thread_name(const char *cmd_line, char *thread_name,
+                    size_t size); // 실행 파일 이름만 별도로 추출하는 함수
+
 /* General process initializer for initd and other process. */
 static void process_init(void)
 {
     struct thread *current = thread_current();
+}
+
+int process_add_file(struct file *file)
+{
+    struct thread *current = thread_current();
+    struct fd_entry *fd_entry;
+
+    if (file == NULL) {
+        return -1;
+    }
+
+    fd_entry = malloc(sizeof *fd_entry);
+    if (fd_entry == NULL) {
+        return -1;
+    }
+
+    fd_entry->fd = current->next_fd;
+    fd_entry->file = file;
+    list_push_back(&current->fd_list, &fd_entry->elem);
+    current->next_fd++;
+
+    return fd_entry->fd;
+}
+
+struct file *process_find_file(int fd)
+{
+    struct thread *current = thread_current();
+    struct list_elem *elem;
+    struct fd_entry *fd_entry;
+
+    elem = list_begin(&current->fd_list);
+
+    while (elem != list_end(&current->fd_list)) {
+        fd_entry = list_entry(elem, struct fd_entry, elem);
+        if (fd_entry->fd == fd) {
+            return fd_entry->file;
+        }
+        elem = list_next(elem);
+    }
+    return NULL;
+}
+
+bool process_close_file(int fd)
+{
+    struct thread *current = thread_current();
+    struct list_elem *elem;
+    struct fd_entry *fd_entry;
+
+    elem = list_begin(&current->fd_list);
+
+    while (elem != list_end(&current->fd_list)) {
+        fd_entry = list_entry(elem, struct fd_entry, elem);
+        if (fd_entry->fd == fd) {
+            file_close(fd_entry->file);
+            list_remove(&fd_entry->elem);
+            free(fd_entry);
+
+            return true;
+        }
+        elem = list_next(elem);
+    }
+    return false;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -44,11 +110,15 @@ static void process_init(void)
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t process_create_initd(const char *file_name)
 {
-    tid_t tid;
-    char *fn_copy;
-    char thread_name[16];
-    struct child_status *child_status;
     struct process_start_info *start_info;
+    struct child_status *child_status;
+    char *fn_copy;        // initd/load에 전달할 전체 명령줄 복사본
+    char thread_name[16]; // 실행 파일의 이름 저장할 배열
+    tid_t tid;
+
+    if (!extract_thread_name(file_name, thread_name, sizeof(thread_name))) {
+        return TID_ERROR;
+    }
 
     /* start_info 동적 할당 */
     start_info = malloc(sizeof *start_info);
@@ -82,17 +152,15 @@ tid_t process_create_initd(const char *file_name)
     start_info->file_name = fn_copy;
     start_info->child_status = child_status;
 
-    /* 최초 실행 때만 명령줄 첫 단어를 스레드 이름으로 사용한다.
-     * 인자 전달에 쓸 fn_copy는 수정하지 않는다. */
-    const char *program_name = file_name;
-    /* 첫 공백 전까지가 실행 파일 이름이다. 스레드 이름은 최대 15자다. */
-    size_t name_len = strcspn(program_name, " ");
-    if (name_len >= sizeof thread_name) {
-        name_len = sizeof thread_name - 1;
-    }
-    /* memcpy()는 끝 문자를 복사하지 않으므로 직접 붙인다. */
-    memcpy(thread_name, program_name, name_len);
-    thread_name[name_len] = '\0';
+    /* 해야할 일:
+     1. child_status 동적 할당 v
+     2. status, is_waited, exit_sema 초기화 v
+     3. tread_create() v
+     4. 생성된 tid 기록 v
+     5. 부모의 children 목록에 등록 v
+     
+     현재 thread_create()은 fn_copy만 전달하고 있는데 이제 child_status도 전달해야 함.
+     따라서 두 정보를 묶는 구조체가 하나 더 필요...*/
 
     /* Create a new thread to execute FILE_NAME. */
     tid = thread_create(thread_name, PRI_DEFAULT, initd, start_info);
@@ -106,6 +174,35 @@ tid_t process_create_initd(const char *file_name)
     child_status->tid = tid;
     list_push_back((&thread_current()->children), &child_status->elem);
     return tid;
+}
+
+/* 전체 명령줄에서 실행 파일 일므인 첫 번째 토큰 추출하는 함수 */
+static bool extract_thread_name(const char *cmd_line, char *thread_name,
+                                size_t size)
+{
+    size_t cmd_idx = 0;  // cmd_line에서 현재 읽고 있는 위치
+    size_t name_idx = 0; // thread_name에 다음 문자를 저장할 위치
+
+    if (size == 0) {
+        return false;
+    }
+
+    while (cmd_line[cmd_idx] == ' ') {
+        cmd_idx++;
+    }
+    if (cmd_line[cmd_idx] == '\0') {
+        return false;
+    }
+
+    while (name_idx + 1 < size && cmd_line[cmd_idx] != ' ' &&
+           cmd_line[cmd_idx] != '\0') {
+        thread_name[name_idx] = cmd_line[cmd_idx];
+        name_idx++;
+        cmd_idx++;
+    }
+
+    thread_name[name_idx] = '\0';
+    return true;
 }
 
 /* A thread function that launches first user process. */
@@ -142,17 +239,17 @@ static void initd(void *aux_)
    부모는 자식의 주소 공간 복제가 끝날 때까지 기다리고,
    성공하면 자식 tid를 반환하고 실패하면 TID_ERROR를 반환한다.
    ********************************************************
+   부모 쪽에서 fork를 준비하는 함수
    로직:
    1. fork_start_info와 child_status 할당
    2. child_status 초기화
-   3. 부모 포인터와 intr_frame 복사
-   4. fork 완료, 세머포어 초기화
-   5. thread_create()
-   6. 생성된 tid를 child_status에 저장
-   7. 자식의 복제 완료까지 대기
-   8. 성공 여부 저장 후 임시 start_info 해제
-   9. 성공하면 children 목록에 등록
-   10. 실패하면 자식 종료 후 child_status 해제 */
+   3. 부모 스레드와 intr_frame 저장
+   4. fork 완료용 fork_sema 초기화
+   5. thread_create()로 자식 생성
+   6. 자식의 주소 공간 복제가 끝날 때까지 sema_down()
+   7. 성공하면 부모의 children 목록에 자식 등록
+   8. 부모에게 자식 tid 반환
+   9. 실패하면 자식 종료 후 child_status 해제 */
 
 tid_t process_fork(const char *name, struct intr_frame *if_)
 {
@@ -216,9 +313,10 @@ tid_t process_fork(const char *name, struct intr_frame *if_)
 /* 부모의 사용자 페이지 하나를 자식 주소 공간에 복제한다.
    페이지 내용뿐 아니라 부모 매핑의 쓰기 권한도 동일하게 보존한다.
    ********************************************************
+   pml4_for_each()가 부모의 각 페이지 마다 호출
    로직:
    1. 커널 가상 주소면 복제하지 않고 건너 뜀
-   2. 부모 페이지 테이블에서 실제 페이지 조회
+   2. 부모 페이지 테이블에서 물리 페이지 조회
    3. 자식용 사용자 페이지 할당
    4. PGSIZE만큼 원시 메모리 복사
    5. 부모 PTE의 쓰기 권한 확인
@@ -269,16 +367,15 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux)
 /* 새 자식 스레드에서 부모의 실행 문맥과 주소 공간을 복제한다.
    복제가 끝나면 결과를 부모에게 알리고 사용자 영역으로 진입
    ****************************************************
+   새로 생성된 자식 스레드에서 실행되는 함수
    로직:
-   1. fork_start_info에서 부모와 intr_frame 추출
-   2. 자식 thread에 child_status 연결
-   3. 부모 intr_frame을 자식 지역 intr_frame으로 복사
-   4. 자식의 fork 반환값 RAX를 0으로 설정
-   5. 부모 사용자 페이지 전체  복제
-   6. 자식 프로세스 초기화
-   7. 성공 여부 기록
-   8. 부모를 꺠움
-   9. do_iret()으로 사용자 영역 복귀 */
+   1. 부모의 intr_frame 복사
+   2. 자식의 fork 반환값인 RAX 0으로 설정
+   3. 자식용 페이지 테이블 생성
+   4. 부모 주소 공간 복제
+   5. 복제 결과를 is_forked에 기록
+   6. sema_up으로 부모 깨움
+   7. 성공하면 do_iret()으로 자식 사용자 코드에 복귀 */
 static void __do_fork(void *aux)
 {
     struct intr_frame if_;
@@ -293,7 +390,12 @@ static void __do_fork(void *aux)
     /* 1. Read the cpu context to local stack. */
     memcpy(&if_, parent_if, sizeof(struct intr_frame));
 
+    /* fork()가 성공했을 때 반환값으로
+    부모: 자식의 tid
+    자식: 0
+    자식이 사용자 영역으로 돌아갈 떄 복원할 레지스터 상태 이므로, 자식이 fork()의 반환값으로 0을 받도록 RAX를 0으로 설정 */
     if_.R.rax = 0;
+
     /* 페이지 복제 도중 실패하더라도 process_exit()이
        부모에게 종료 상태를 전달할 수 있도록 먼저 연결한다. */
     current->child_status = start_info->child_status;
@@ -331,6 +433,12 @@ static void __do_fork(void *aux)
     // if (succ) {
     //     do_iret(&if_);
     // }
+
+/* 부모에게 복제 실패를 전달하려면 공유 상태와 동기화가 필요
+   1. 자식이 startr_info->is_forked = false로 기록
+   2. fork_sema를 올려 기다리던 부모를 깨움
+   3. 부모가 이를 확인하고 TID_ERROR, 즉 -1 반환
+   4. 자식은 thread_exit()으로 종료 */
 error:
     start_info->is_forked = false;
     sema_up(&start_info->fork_sema);
