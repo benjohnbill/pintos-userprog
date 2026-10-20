@@ -31,6 +31,10 @@ static bool load(char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
+static bool
+extract_thread_name(const char *cmd_line, char *thread_name,
+                    size_t size); // 실행 파일 이름만 별도로 추출하는 함수
+
 /* General process initializer for initd and other process. */
 static void process_init(void)
 {
@@ -46,8 +50,13 @@ tid_t process_create_initd(const char *file_name)
 {
     struct process_start_info *start_info;
     struct child_status *child_status;
-    char *fn_copy;
+    char *fn_copy;        // initd/load에 전달할 전체 명령줄 복사본
+    char thread_name[16]; // 실행 파일의 이름 저장할 배열
     tid_t tid;
+
+    if (!extract_thread_name(file_name, thread_name, sizeof(thread_name))) {
+        return TID_ERROR;
+    }
 
     /* start_info 동적 할당 */
     start_info = malloc(sizeof *start_info);
@@ -92,7 +101,7 @@ tid_t process_create_initd(const char *file_name)
      따라서 두 정보를 묶는 구조체가 하나 더 필요...*/
 
     /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(file_name, PRI_DEFAULT, initd, start_info);
+    tid = thread_create(thread_name, PRI_DEFAULT, initd, start_info);
     if (tid == TID_ERROR) {
         palloc_free_page(fn_copy);
         free(start_info);
@@ -103,6 +112,35 @@ tid_t process_create_initd(const char *file_name)
     child_status->tid = tid;
     list_push_back((&thread_current()->children), &child_status->elem);
     return tid;
+}
+
+/* 전체 명령줄에서 실행 파일 일므인 첫 번째 토큰 추출하는 함수 */
+static bool extract_thread_name(const char *cmd_line, char *thread_name,
+                                size_t size)
+{
+    size_t cmd_idx = 0;  // cmd_line에서 현재 읽고 있는 위치
+    size_t name_idx = 0; // thread_name에 다음 문자를 저장할 위치
+
+    if (size == 0) {
+        return false;
+    }
+
+    while (cmd_line[cmd_idx] == ' ') {
+        cmd_idx++;
+    }
+    if (cmd_line[cmd_idx] == '\0') {
+        return false;
+    }
+
+    while (name_idx + 1 < size && cmd_line[cmd_idx] != ' ' &&
+           cmd_line[cmd_idx] != '\0') {
+        thread_name[name_idx] = cmd_line[cmd_idx];
+        name_idx++;
+        cmd_idx++;
+    }
+
+    thread_name[name_idx] = '\0';
+    return true;
 }
 
 /* A thread function that launches first user process. */
@@ -595,7 +633,7 @@ static bool load(char *file_name, struct intr_frame *if_)
     }
 
     /* 스레드 이름을 실행 파일 이름으로 바꾼다. 종료 메시지가 이 이름을 쓴다. */
-    strlcpy(t->name, token, sizeof(t->name));
+    // strlcpy(t->name, token, sizeof(t->name));
 
     /* 문자열이 아닌, 각 문자열의 사용자 스택 주소만 저장할 공간이다. */
     arg_addrs = malloc(arg_cnt * sizeof *arg_addrs);
