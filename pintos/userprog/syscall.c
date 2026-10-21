@@ -57,6 +57,7 @@ void syscall_handler(struct intr_frame *f)
         struct file *file = NULL;
         unsigned length = (unsigned)f->R.rdx;
         const void *buffer = (const void *)f->R.rsi;
+        uint64_t *vaddr;
 
         if (fd != STDOUT_FILENO) {
             file = process_find_file(fd);
@@ -91,6 +92,14 @@ void syscall_handler(struct intr_frame *f)
                 f->R.rax = -1;
                 success = false;
                 break;
+            }
+
+            vaddr = pml4e_walk(thread_current()->pml4, i, 0);
+            if (vaddr) {
+                if (!is_writable(vaddr)) {
+                    thread_current()->exit_status = -1;
+                    thread_exit();
+                }
             }
         }
 
