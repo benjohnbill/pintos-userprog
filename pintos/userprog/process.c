@@ -385,6 +385,9 @@ static void __do_fork(void *aux)
     struct fork_start_info *start_info = aux;
     struct thread *parent = start_info->parent;
     struct intr_frame *parent_if = &start_info->parent_if;
+    struct list_elem *fd_elem;        /* 부모의 fd 목록을 순회할 요소 */
+    struct fd_entry *parent_fd_entry; /* 부모의 fd 항목 */
+    struct fd_entry *child_fd_entry;  /* 자식의 fd 항목 */
     // bool succ = true;
 
     /* 1. Read the cpu context to local stack. */
@@ -423,6 +426,35 @@ static void __do_fork(void *aux)
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
+    /* fd 복제의 로직:
+       1. 부모의 fd_list를 순회
+       2. 각 부모의 fd_entry마다 자식용 fd_entry를 malloc()
+       3. 부모의 file을 file_duplicate()로 복제
+       4. 자식 엔트리에 부모와 동일한 fd 번호 저장
+       5. 완성된 엔트리를 current->fd_list에 저장
+       6. 부모의 next_fd도 자식에게 복사
+       7. 복제 실패 시 지금까지 만든 파일은 닫고 fd 항목 free하고 goto error
+       8. 전부 성공한 후에만 is_forked = true, sema_up()실행 v */
+
+    fd_elem = list_begin(&parent->fd_list);
+    while (fd_elem != list_end(&parent->fd_list)) {
+        parent_fd_entry = list_entry(fd_elem, struct fd_entry, elem);
+
+        child_fd_entry = malloc(sizeof *child_fd_entry);
+        if (child_fd_entry == NULL) {
+            goto error;
+        }
+
+        child_fd_entry->file = file_duplicate(parent_fd_entry->file);
+        if (child_fd_entry->file == NULL) {
+            free(child_fd_entry);
+            goto error;
+        }
+        child_fd_entry->fd = parent_fd_entry->fd;
+        list_push_back(&current->fd_list, &child_fd_entry->elem);
+        fd_elem = list_next(fd_elem);
+    }
+    current->next_fd = parent->next_fd;
 
     process_init();
 
