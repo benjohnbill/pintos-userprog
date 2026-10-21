@@ -53,12 +53,16 @@ void syscall_handler(struct intr_frame *f)
     switch (syscall_num) {
     case SYS_WRITE: {
         int fd = (int)f->R.rdi;
-        const void *buffer = (const void *)f->R.rsi;
+        struct file *file = NULL;
         unsigned length = (unsigned)f->R.rdx;
+        const void *buffer = (const void *)f->R.rsi;
 
         if (fd != STDOUT_FILENO) {
-            f->R.rax = -1;
-            break;
+            file = process_find_file(fd);
+            if (file == NULL) {
+                f->R.rax = -1;
+                break;
+            }
         }
 
         if (length == 0) {
@@ -72,11 +76,7 @@ void syscall_handler(struct intr_frame *f)
         }
 
         /* 버퍼의 첫 바이트와 마지막 바이트가 모두 사용자 주소인지 본다. */
-        if (!is_user_vaddr(buffer)) {
-            f->R.rax = -1;
-            break;
-        }
-        if (!is_user_vaddr((uintptr_t)buffer + length - 1)) {
+        if (!is_user_vaddr(buffer) || !is_user_vaddr((uintptr_t)buffer + length - 1)) {
             f->R.rax = -1;
             break;
         }
@@ -94,10 +94,13 @@ void syscall_handler(struct intr_frame *f)
 
         /* 실제 기록한 바이트 수를 반환한다. */
         if (success) {
-            putbuf((const char *)buffer, length);
-            f->R.rax = length;
+            if (fd == STDOUT_FILENO) {
+                putbuf((const char *)buffer, length);
+                f->R.rax = length;
+            } else {
+                f->R.rax = file_write(file, buffer, length);
+            }
         }
-
         break;
     }
 

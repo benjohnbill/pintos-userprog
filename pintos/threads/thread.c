@@ -673,6 +673,7 @@ static void init_thread(struct thread *t, const char *name, int priority)
     list_init(&t->children);
     t->child_status = NULL;
     t->exit_status = -1;
+    t->exec_file = NULL;
 
     /* file_descriptor initializing */
     list_init(&t->fd_list); /* 빈 fd 목록 생성 */
