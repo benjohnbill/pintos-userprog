@@ -317,6 +317,19 @@ void syscall_handler(struct intr_frame *f)
 
         f->R.rax = file_read(file, buffer, length);
         break;
+
+    case SYS_FILESIZE: {
+        int fd = (int)f->R.rdi;
+        struct file *file = process_find_file(fd);
+
+        if (file == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+
+        f->R.rax = file_length(file);
+        break;
+    }
     }
     }
 }
