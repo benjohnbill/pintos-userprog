@@ -308,5 +308,23 @@ void syscall_handler(struct intr_frame *f)
         f->R.rax = file_read(file, buffer, length);
         break;
     }
+
+    /* 열린 파일에서 다음에 읽거나 쓸 위치를 사용자가 원하는 곳으로 옮기는 시스템 콜 */
+    case SYS_SEEK: {
+        int fd;
+        unsigned
+            position; // 다음 read() 또는 write()가 시작 될 바이트 위치. 파일 오프셋
+        struct file *file;
+
+        fd = (int)f->R.rdi;
+        position = (unsigned)f->R.rsi;
+
+        file = process_find_file(fd);
+
+        if (file != NULL) {
+            file_seek(file, position);
+        }
+        break;
+    }
     }
 }
