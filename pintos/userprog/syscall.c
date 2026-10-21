@@ -321,6 +321,7 @@ void syscall_handler(struct intr_frame *f)
 
         f->R.rax = file_read(file, buffer, length);
         break;
+    }
 
     case SYS_FILESIZE: {
         int fd = (int)f->R.rdi;
@@ -365,6 +366,41 @@ void syscall_handler(struct intr_frame *f)
         }
         break;
     }
+
+    case SYS_REMOVE: {
+    /* 첫 번째 인자인 사용자 파일명 주소를 받을 예정 */
+        size_t file_idx;
+        const char *file_name = (const char *)f->R.rdi;
+
+        if (file_name == NULL) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        for (file_idx = 0; file_idx < PGSIZE; file_idx++) {
+            if (!is_user_vaddr(file_name + file_idx)) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+
+            if (!pml4_get_page(thread_current()->pml4, file_name + file_idx)) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+
+            if (file_name[file_idx] == '\0') {
+                break;
+            }
+        }
+
+        if (file_idx == PGSIZE) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        f->R.rax = filesys_remove(file_name);
+
+        break;
     }
     }
 }
