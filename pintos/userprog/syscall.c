@@ -1,4 +1,5 @@
 #include "userprog/syscall.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
@@ -76,7 +77,8 @@ void syscall_handler(struct intr_frame *f)
         }
 
         /* 버퍼의 첫 바이트와 마지막 바이트가 모두 사용자 주소인지 본다. */
-        if (!is_user_vaddr(buffer) || !is_user_vaddr((uintptr_t)buffer + length - 1)) {
+        if (!is_user_vaddr(buffer) ||
+            !is_user_vaddr((uintptr_t)buffer + length - 1)) {
             f->R.rax = -1;
             break;
         }
@@ -254,6 +256,7 @@ void syscall_handler(struct intr_frame *f)
         void *buffer = (void *)f->R.rsi;
         unsigned length = (unsigned)f->R.rdx;
         struct file *file;
+        uint64_t *vaddr;
 
         if (length == 0) {
             f->R.rax = 0;
@@ -287,6 +290,14 @@ void syscall_handler(struct intr_frame *f)
                 thread_current()->exit_status = -1;
                 thread_exit();
             }
+
+            vaddr = pml4e_walk(thread_current()->pml4, page_addr, 0);
+            if (vaddr) {
+                if (!is_writable(vaddr)) {
+                    thread_current()->exit_status = -1;
+                    thread_exit();
+                }
+            }
         }
 
         if (fd == STDOUT_FILENO) {
@@ -310,6 +321,32 @@ void syscall_handler(struct intr_frame *f)
 
         f->R.rax = file_read(file, buffer, length);
         break;
+
+    case SYS_FILESIZE: {
+        int fd = (int)f->R.rdi;
+        struct file *file = process_find_file(fd);
+
+        if (file == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+
+        f->R.rax = file_length(file);
+        break;
+    }
+
+    case SYS_TELL: {
+        int fd = (int)f->R.rdi;
+        struct file *file = process_find_file(fd);
+
+        if (file == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+
+        f->R.rax = file_tell(file);
+        break;
+    }
     }
     }
 }

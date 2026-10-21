@@ -158,7 +158,7 @@ tid_t process_create_initd(const char *file_name)
      3. tread_create() v
      4. 생성된 tid 기록 v
      5. 부모의 children 목록에 등록 v
-     
+
      현재 thread_create()은 fn_copy만 전달하고 있는데 이제 child_status도 전달해야 함.
      따라서 두 정보를 묶는 구조체가 하나 더 필요...*/
 
@@ -585,6 +585,8 @@ int process_wait(tid_t child_tid)
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
 {
+    struct list_elem *elem;
+    struct fd_entry *fd_entry;
     struct thread *curr = thread_current();
 
     /* Kernel threads have no page table; only user processes print. */
@@ -592,15 +594,19 @@ void process_exit(void)
         printf("%s: exit(%d)\n", curr->name, curr->exit_status);
     }
 
-    /* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
-
     if (curr->child_status != NULL) {
         curr->child_status->status = curr->exit_status;
     }
     process_cleanup();
+
+    /* File must be closed, if not called close() | forced terminated. */
+    elem = list_begin(&curr->fd_list);
+
+    while (elem != list_end(&curr->fd_list)) {
+        fd_entry = list_entry(elem, struct fd_entry, elem);
+        elem = list_next(elem);
+        process_close_file(fd_entry->fd);
+    }
 
     if (curr->child_status != NULL) {
         sema_up(&curr->child_status->exit_sema);
@@ -863,7 +869,7 @@ static bool load(char *file_name, struct intr_frame *if_)
         goto done;
     }
     if_->rsp -= padding;
-    /* 정렬을 위해 비워 둔 바이트를 0으로 채운다. 
+    /* 정렬을 위해 비워 둔 바이트를 0으로 채운다.
     다만 이 코드는 kpage = palloc_get_page(PAL_USER | PAL_ZERO); 에서
     새 페이지 전체를 0으로 채우기 때문에 중복 작업이라 불필요한 코드이다.*/
     memset((void *)if_->rsp, 0, padding);
