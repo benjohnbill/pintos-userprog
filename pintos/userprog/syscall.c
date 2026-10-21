@@ -11,6 +11,9 @@
 #include "intrinsic.h"
 #include "threads/palloc.h"
 #include "userprog/process.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "devices/input.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -169,6 +172,141 @@ void syscall_handler(struct intr_frame *f)
             thread_exit();
         }
     }
-    //! 끝 //
+        //! 끝 //
+
+    /* 로직
+       1. f->R.rdi에서 사용자 파일명 포인터를 받는다.
+       2. 파일명이 NULL인지, 사용자 주소인지, NULL 문자까지 매핑되었는지 검사한다.
+       3. filesys_open()으로 struct *file을 얻는다.
+       4. 실패하면 -1 반환
+       5. 성공하면 process_add_file()로 fd를 발급한다.
+       6. fd 발급이 실패했다면 방금 연 파일을 닫는다.
+       7. 성공한 fd를 f->R.rax에 저장 */
+    case SYS_OPEN: {
+        const char *file_name = (const char *)f->R.rdi;
+        size_t file_idx;
+        struct file *file;
+        int fd;
+
+        if (file_name == NULL) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        for (file_idx = 0; file_idx < PGSIZE; file_idx++) {
+            if (!is_user_vaddr(file_name + file_idx)) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+
+            if (!pml4_get_page(thread_current()->pml4, file_name + file_idx)) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+
+            if (file_name[file_idx] == '\0') {
+                break;
+            }
+        }
+
+        if (file_idx == PGSIZE) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        file = filesys_open(file_name);
+        if (file == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+        fd = process_add_file(file);
+        if (fd == -1) {
+            file_close(file);
+        }
+
+        f->R.rax = fd;
+        break;
+    }
+
+    /* 로직
+       1. f->R.rdi에서 int fd를 꺼낸다
+       2. process_close_file(fd)를 호출한다.
+       3. 반환값은 사용자에게 돌려줄 필요가 없다.
+       4. 존재하지 않는 fd라면 process_close_file()이 false를 반환하지만 무시 가능. */
+    case SYS_CLOSE: {
+        int fd = (int)f->R.rdi;
+
+        process_close_file(fd);
+        break;
+    }
+
+    /* 로직
+       1. 시작 주소가 사용자 주소인지 확인
+       2. 마지막 주소 buffer + length -1을 계산
+       3. 주소 계산에서 정수 오버플로가 발생하지 않았는지 확인
+       4. 마지막 주소도 사용자 주소인지 확인
+       5. 시작 페이지부터 마지막 페이지까지 매핑 여부 확인*/
+    case SYS_READ: {
+        int fd = (int)f->R.rdi;
+        void *buffer = (void *)f->R.rsi;
+        unsigned length = (unsigned)f->R.rdx;
+        struct file *file;
+
+        if (length == 0) {
+            f->R.rax = 0;
+            break;
+        }
+        if (buffer == NULL) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        if (!is_user_vaddr(buffer)) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+        if ((uintptr_t)buffer + length - 1 < (uintptr_t)buffer) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        if (!is_user_vaddr((void *)((uintptr_t)buffer + length - 1))) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        for (uintptr_t page_addr = (uintptr_t)pg_round_down(buffer);
+             page_addr <=
+             (uintptr_t)pg_round_down((uintptr_t)buffer + length - 1);
+             page_addr += PGSIZE) {
+            if (pml4_get_page(thread_current()->pml4, (void *)page_addr) ==
+                NULL) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+        }
+
+        if (fd == STDOUT_FILENO) {
+            f->R.rax = -1;
+            break;
+        }
+
+        if (fd == STDIN_FILENO) {
+            for (unsigned i = 0; i < length; i++) {
+                ((uint8_t *)buffer)[i] = input_getc();
+            }
+            f->R.rax = length;
+            break;
+        }
+
+        file = process_find_file(fd);
+        if (file == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+
+        f->R.rax = file_read(file, buffer, length);
+        break;
+    }
     }
 }
