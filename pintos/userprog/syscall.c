@@ -77,7 +77,8 @@ void syscall_handler(struct intr_frame *f)
         }
 
         /* 버퍼의 첫 바이트와 마지막 바이트가 모두 사용자 주소인지 본다. */
-        if (!is_user_vaddr(buffer) || !is_user_vaddr((uintptr_t)buffer + length - 1)) {
+        if (!is_user_vaddr(buffer) ||
+            !is_user_vaddr((uintptr_t)buffer + length - 1)) {
             f->R.rax = -1;
             break;
         }
@@ -331,6 +332,19 @@ void syscall_handler(struct intr_frame *f)
         }
 
         f->R.rax = file_length(file);
+        break;
+    }
+
+    case SYS_TELL: {
+        int fd = (int)f->R.rdi;
+        struct file *file = process_find_file(fd);
+
+        if (file == NULL) {
+            f->R.rax = -1;
+            break;
+        }
+
+        f->R.rax = file_tell(file);
         break;
     }
     }
