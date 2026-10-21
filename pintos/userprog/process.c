@@ -158,7 +158,7 @@ tid_t process_create_initd(const char *file_name)
      3. tread_create() v
      4. 생성된 tid 기록 v
      5. 부모의 children 목록에 등록 v
-     
+
      현재 thread_create()은 fn_copy만 전달하고 있는데 이제 child_status도 전달해야 함.
      따라서 두 정보를 묶는 구조체가 하나 더 필요...*/
 
@@ -577,6 +577,8 @@ int process_wait(tid_t child_tid)
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
 {
+    struct list_elem *elem;
+    struct fd_entry *fd_entry;
     struct thread *curr = thread_current();
 
     /* Kernel threads have no page table; only user processes print. */
@@ -584,15 +586,19 @@ void process_exit(void)
         printf("%s: exit(%d)\n", curr->name, curr->exit_status);
     }
 
-    /* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
-
     if (curr->child_status != NULL) {
         curr->child_status->status = curr->exit_status;
     }
     process_cleanup();
+
+    /* File must be closed, if not called close() | forced terminated. */
+    elem = list_begin(&curr->fd_list);
+
+    while (elem != list_end(&curr->fd_list)) {
+        fd_entry = list_entry(elem, struct fd_entry, elem);
+        elem = list_next(elem);
+        process_close_file(fd_entry->fd);
+    }
 
     if (curr->child_status != NULL) {
         sema_up(&curr->child_status->exit_sema);
