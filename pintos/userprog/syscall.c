@@ -57,6 +57,7 @@ void syscall_handler(struct intr_frame *f)
         struct file *file = NULL;
         unsigned length = (unsigned)f->R.rdx;
         const void *buffer = (const void *)f->R.rsi;
+        uint64_t *vaddr;
 
         if (fd != STDOUT_FILENO) {
             file = process_find_file(fd);
@@ -87,10 +88,12 @@ void syscall_handler(struct intr_frame *f)
         for (uintptr_t i = (uintptr_t)pg_round_down(buffer);
              i <= (uintptr_t)pg_round_down((uintptr_t)buffer + length - 1);
              i += PGSIZE) {
-            if (pml4_get_page(thread_current()->pml4, (void *)i) == NULL) {
-                f->R.rax = -1;
-                success = false;
-                break;
+
+            if (is_user_vaddr(buffer)) {
+                if (pml4_get_page(thread_current()->pml4, (void *)i) == NULL) {
+                    thread_current()->exit_status = -1;
+                    thread_exit();
+                }
             }
         }
 
@@ -367,8 +370,43 @@ void syscall_handler(struct intr_frame *f)
         break;
     }
 
+    case SYS_CREATE: {
+        const char *file_name = (const char *)f->R.rdi;
+        unsigned initial_size = (unsigned)f->R.rsi;
+        size_t file_idx;
+
+        if (file_name == NULL) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        for (file_idx = 0; file_idx < PGSIZE; file_idx++) {
+            if (!is_user_vaddr(file_name + file_idx)) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+
+            if (!pml4_get_page(thread_current()->pml4, file_name + file_idx)) {
+                thread_current()->exit_status = -1;
+                thread_exit();
+            }
+
+            if (file_name[file_idx] == '\0') {
+                break;
+            }
+        }
+
+        if (file_idx == PGSIZE) {
+            thread_current()->exit_status = -1;
+            thread_exit();
+        }
+
+        f->R.rax = filesys_create(file_name, initial_size);
+        break;
+    }
+
     case SYS_REMOVE: {
-    /* 첫 번째 인자인 사용자 파일명 주소를 받을 예정 */
+        /* 첫 번째 인자인 사용자 파일명 주소를 받을 예정 */
         size_t file_idx;
         const char *file_name = (const char *)f->R.rdi;
 
@@ -399,7 +437,6 @@ void syscall_handler(struct intr_frame *f)
         }
 
         f->R.rax = filesys_remove(file_name);
-
         break;
     }
     }
