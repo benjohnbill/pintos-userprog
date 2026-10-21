@@ -88,15 +88,9 @@ void syscall_handler(struct intr_frame *f)
         for (uintptr_t i = (uintptr_t)pg_round_down(buffer);
              i <= (uintptr_t)pg_round_down((uintptr_t)buffer + length - 1);
              i += PGSIZE) {
-            if (pml4_get_page(thread_current()->pml4, (void *)i) == NULL) {
-                f->R.rax = -1;
-                success = false;
-                break;
-            }
 
-            vaddr = pml4e_walk(thread_current()->pml4, i, 0);
-            if (vaddr) {
-                if (!is_writable(vaddr)) {
+            if (is_user_vaddr(buffer)) {
+                if (pml4_get_page(thread_current()->pml4, (void *)i) == NULL) {
                     thread_current()->exit_status = -1;
                     thread_exit();
                 }
