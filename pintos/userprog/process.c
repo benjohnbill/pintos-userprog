@@ -456,6 +456,14 @@ static void __do_fork(void *aux)
     }
     current->next_fd = parent->next_fd;
 
+    /* 사용자 fd와 별도로, 실행 파일의 쓰기 금지 상태도 자식에게 물려준다. */
+    if (parent->exec_file != NULL) {
+        current->exec_file = file_duplicate(parent->exec_file);
+        if (current->exec_file == NULL) {
+            goto error;
+        }
+    }
+
     process_init();
 
     start_info->is_forked = true;
@@ -630,6 +638,10 @@ static void process_cleanup(void)
         pml4_activate(NULL);
         pml4_destroy(pml4);
     }
+    if (curr->exec_file != NULL) {
+        file_close(curr->exec_file);
+        curr->exec_file = NULL;
+    }
 }
 
 /* Sets up the CPU for running user code in the nest thread.
@@ -754,6 +766,9 @@ static bool load(char *file_name, struct intr_frame *if_)
         printf("load: %s: open failed\n", file_name);
         goto done;
     }
+
+    /* 실행 중인 파일을 다른 fd로 열어도 덮어쓸 수 없게 한다. */
+    file_deny_write(file);
 
     /* Read and verify executable header. */
     if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
@@ -881,7 +896,11 @@ done:
     /* 성공과 실패 모두 이 지점에서 임시 자원을 정리한다. */
     /* 임시 주소 목록만 해제한다. 문자열은 사용자 스택에 별도로 남아 있다. */
     free(arg_addrs);
-    file_close(file);
+    if (success) {
+        t->exec_file = file;
+    } else {
+        file_close(file);
+    }
     return success;
 }
 

@@ -115,6 +115,7 @@ struct thread {
 
     struct list fd_list; /* 열린 파일 항목들을 연결할 리스트 */
     int next_fd; /* 다음에 발급할 파일 디스크립터 번호를 저장 */
+    struct file *exec_file; /* 실행 중인 파일을 종료할 때까지 보관 */
 
 #endif
 #ifdef VM
