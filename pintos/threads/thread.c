@@ -667,6 +667,19 @@ static void init_thread(struct thread *t, const char *name, int priority)
         list_push_front(&all_list, &(t->all));
         intr_set_level(old_level);
     }
+
+#ifdef USERPROG
+    /* process_wait()을 위한 구조체 initializing */
+    list_init(&t->children);
+    t->child_status = NULL;
+    t->exit_status = -1;
+    t->exec_file = NULL;
+
+    /* file_descriptor initializing */
+    list_init(&t->fd_list); /* 빈 fd 목록 생성 */
+    t->next_fd =
+        2; /* 0은 표준 입력용 fd, 1은 표준 출력용 fd, 2 이상부터 open()으로 열 일반 파일 */
+#endif
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
