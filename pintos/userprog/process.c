@@ -103,6 +103,20 @@ bool process_close_file(int fd)
     return false;
 }
 
+static void process_close_all_files(void)
+{
+    struct list_elem *elem;
+    struct fd_entry *fd_entry;
+    struct thread *current = thread_current();
+
+    while (!list_empty(&current->fd_list)) {
+        elem = list_pop_front(&current->fd_list);
+        fd_entry = list_entry(elem, struct fd_entry, elem);
+        file_close(fd_entry->file);
+        free(fd_entry);
+    }
+}
+
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
  * before process_create_initd() returns. Returns the initd's
@@ -580,8 +594,9 @@ int process_wait(tid_t child_tid)
  1. 현재 스레드의 종료 메시지 출력
  2. child_status가 있는지 확인
  3. curr->exit_status를 child_status->status에 복사
- 4. 프로세스 주소 공간 정리
- 5. exit_sema를 sema_up()해서 부모 깨우기 */
+ 4. 현재 프로세스가 보유한 모든 파일 디스크립터 정리
+ 5. 프로세스 주소 공간 정리
+ 6. exit_sema를 sema_up()해서 부모 깨우기 */
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
 {
@@ -597,6 +612,7 @@ void process_exit(void)
     if (curr->child_status != NULL) {
         curr->child_status->status = curr->exit_status;
     }
+    process_close_all_files();
     process_cleanup();
 
     /* File must be closed, if not called close() | forced terminated. */
