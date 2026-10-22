@@ -1,0 +1,1865 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1주일간의 8팀 — Pintos Userprog</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2312201F'/%3E%3Ctext x='16' y='23' font-size='19' font-family='monospace' font-weight='700' text-anchor='middle' fill='%234FC5B3'%3EJ%3C/text%3E%3C/svg%3E">
+<meta name="description" content="8팀이 Pintos Userprog 한 주 동안 어떻게 나누고 합쳤는지: 컨벤션, ptest, 분업표">
+<meta property="og:type" content="website">
+<meta property="og:title" content="1주일간의 8팀 — Pintos Userprog">
+<meta property="og:description" content="8팀이 Pintos Userprog 한 주 동안 어떻게 나누고 합쳤는지: 컨벤션, ptest, 분업표">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!--
+  Stage runtime (jungle-deck templates/stage.html)
+
+  Keys
+    → / Space / PageDown : next step on this slide; after the last step, next slide
+    ← / PageUp           : hide the last step; with none shown, previous slide
+    N                    : toggle the speaker-notes panel
+    ?                    : shortcut overlay (Esc or ? closes it)
+    E (or top-left corner): edit mode; click slide text or notes to change it
+    Tab (editing)        : size toolbar for the selected text (← → choose, Esc back)
+    Ctrl+S               : save. Served by scripts/serve.py: write the changed slides
+                           into the source file. Opened as a file: download the deck
+    R                    : reload after an agent edit (only while its notice shows)
+    Home / End           : first / last slide
+    #3 at the end of the URL : open slide 3
+
+  Authoring
+    Steps : put data-step="1", "2", ... on elements; they appear in that order
+    Notes : edit <aside class="notes" data-sec="15"> inside each <section>
+            (hidden on the slide). Start a paragraph with <span class="st">▸2</span>
+            to tie it to step 2.
+    Ids   : keep <section id="sN">; saves, autosaves, and the merge-back script
+            match edits by it, never by position.
+    Edit  : the outermost element with text of its own is editable (a <b> inside
+            such a <p> is edited with it). Put data-evidence on real run output to
+            lock it. A box the student may resize has one of the classes panel,
+            card, box, content-box, container, or the attribute data-box. SVG text
+            is locked: draw a diagram the student may edit with HTML boxes.
+-->
+
+<style>
+/* ===========================================
+   1. Theme tokens. Every color lives here.
+   PLACEHOLDER values: the real style comes from the Design section of
+   BRIEF.md. A style source sets only the base tokens (--paper, --ink,
+   --acc, --mut, --panel, --grid) and the fonts; the rest derive from them.
+   =========================================== */
+:root {
+    /* Base tokens */
+    --paper:   #ffffff;
+    --ink:     #0a0a0a;
+    --acc:     #ff3300;               /* DESIGN.md accent (docs/slides/DESIGN.md) */
+    --grid:    #ebebeb;
+    --mut:     #6b6b6b;
+    --panel:   #f7f7f5;
+
+    /* Derived tokens: do not set these in a style source */
+    --hl:      color-mix(in srgb, var(--acc) 13%, transparent);  /* code-line highlight fill; the only filled accent */
+    --edit-bg: color-mix(in srgb, var(--acc) 5%, transparent);   /* focused field in edit mode */
+    --dim:     color-mix(in srgb, var(--ink) 50%, var(--paper)); /* code comments, elided lines */
+    --panel-b: var(--ink);
+    --cap-b:   color-mix(in srgb, var(--ink) 25%, transparent);  /* panel caption rule */
+    --shadow:  color-mix(in srgb, var(--ink) 8%, transparent);
+    --scrim:   color-mix(in srgb, var(--ink) 45%, transparent);  /* behind the help overlay */
+
+    --font-body: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'IBM Plex Sans KR', monospace;
+
+    /* Type and spacing scale with the viewport (frontend-slides viewport contract) */
+    --title-size: clamp(2.2rem, 4.4vw, 7rem);
+    --h2-size:    clamp(1.35rem, 2.15vw, 3rem);
+    --h3-size:    clamp(1.1rem, 1.6vw, 2.2rem);
+    --body-size:  clamp(0.95rem, 1.2vw, 1.7rem);
+    --small-size: clamp(0.72rem, 0.8vw, 1.15rem);
+    --code-size:  clamp(0.8rem, min(1.1vw, 2vh), 1.65rem);
+
+    --slide-padding: clamp(1rem, 4vw, 4rem);
+    --content-gap:   clamp(0.5rem, 1.8vh, 1.6rem);
+    --element-gap:   clamp(0.25rem, 1vw, 1rem);
+
+    /* Size steps the student sets in edit mode, ±2 around the template size (one place) */
+    --jd-t-s2: .75;  --jd-t-s1: .875;  --jd-t-l1: 1.25;  --jd-t-l2: 1.5;    /* text size */
+    --jd-w-s2: .75;  --jd-w-s1: .875;  --jd-w-l1: 1.125; --jd-w-l2: 1.25;   /* box width */
+
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur:  0.5s;
+}
+
+/* ===========================================
+   2. Viewport contract, from vendor/frontend-slides/viewport-base.css.
+   The scroll-snap rules are left out: the stage shows one fixed slide at a time.
+   =========================================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+}
+
+.slide {
+    position: fixed; inset: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;   /* dynamic viewport height for mobile browsers */
+    display: flex; flex-direction: column;
+    overflow: hidden; /* never let a slide scroll */
+}
+.slide-content {
+    flex: 1; min-height: 0; max-height: 100%;
+    display: flex; flex-direction: column; justify-content: center;
+    overflow: hidden;
+    gap: var(--content-gap);
+    padding: clamp(.5rem, 1.4vh, 1.1rem) var(--slide-padding);
+    position: relative; z-index: 2;
+}
+.card, .container, .content-box {
+    max-width: min(90vw, 1000px);
+    max-height: min(80vh, 700px);
+}
+.feature-list, .bullet-list { gap: clamp(0.4rem, 1vh, 1rem); }
+.feature-list li, .bullet-list li { font-size: var(--body-size); line-height: 1.4; }
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+    gap: clamp(0.5rem, 1.5vw, 1rem);
+}
+img, .image-container {
+    max-width: 100%;
+    max-height: min(50vh, 400px);
+    object-fit: contain;
+}
+
+/* Short viewports (< 700px height) */
+@media (max-height: 700px) {
+    :root {
+        --slide-padding: clamp(0.75rem, 3vw, 2rem);
+        --content-gap:   clamp(.35rem, 1.2vh, .8rem);
+        --title-size:    clamp(1.4rem, 4.2vw, 2.6rem);
+        --h2-size:       clamp(1.05rem, 2.6vw, 1.8rem);
+    }
+}
+/* Very short viewports (< 600px height) */
+@media (max-height: 600px) {
+    :root {
+        --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+        --content-gap:   clamp(0.3rem, 1vw, 0.75rem);
+        --title-size:    clamp(1.1rem, 4vw, 2rem);
+        --body-size:     clamp(0.7rem, 1.2vw, 0.95rem);
+    }
+    /* Hide non-essential elements */
+    .nav-dots, .keyboard-hint, .decorative { display: none; }
+}
+/* Extremely short (landscape phones, < 500px height) */
+@media (max-height: 500px) {
+    :root {
+        --slide-padding: clamp(0.4rem, 2vw, 1rem);
+        --title-size:    clamp(1rem, 3.5vw, 1.5rem);
+        --h2-size:       clamp(0.9rem, 2.5vw, 1.25rem);
+        --body-size:     clamp(0.65rem, 1vw, 0.85rem);
+    }
+}
+/* Narrow viewports (< 600px width) */
+@media (max-width: 600px) {
+    :root { --title-size: clamp(1.3rem, 7vw, 2.4rem); }
+    .grid, .panels { grid-template-columns: 1fr !important; }
+}
+
+/* ===========================================
+   3. Stage: one slide visible at a time
+   =========================================== */
+.slide {
+    background: var(--paper);
+    opacity: 0; visibility: hidden;
+    transition: opacity .35s ease, visibility 0s linear .35s;
+}
+.slide.active {
+    opacity: 1; visibility: visible; z-index: 2;
+    transition: opacity .35s ease, visibility 0s;
+}
+/* The leaving slide does not fade; it stays underneath. If both slides were
+   half-transparent at once, lines in the same place (head rule, grid) would
+   dim and come back. */
+.slide.leaving {
+    opacity: 1; visibility: visible; z-index: 1;
+    transition: none;
+}
+/* Background 12-column grid */
+.slide::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(90deg, var(--grid) 0 1px, transparent 1px 8.3333%);
+    opacity: .6; z-index: 0;
+}
+
+/* Head and foot bands */
+.head {
+    position: relative; z-index: 2;
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 2px solid var(--ink);
+    padding: clamp(1rem, 3.2vh, 2.4rem) var(--slide-padding) clamp(.4rem, 1vh, .7rem);
+    font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut);
+}
+.head .num { letter-spacing: .1em; }
+.foot {
+    position: relative; z-index: 2;
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid var(--ink);
+    margin: 0 var(--slide-padding) clamp(1rem, 3vh, 2.2rem);
+    padding-top: clamp(.35rem, 1vh, .6rem);
+    font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut);
+}
+
+h1, h2, p, li, td, .foot span, .head span { word-break: keep-all; text-wrap: pretty; }
+h1, h2 { text-wrap: balance; }
+
+/* ===========================================
+   4. Text elements
+   =========================================== */
+h1 {
+    font-weight: 700; line-height: 1.22; letter-spacing: -.02em;
+    font-size: var(--title-size); max-width: 20ch;
+}
+h1 em, h2 em { font-style: normal; color: var(--acc); }
+h2 {
+    font-weight: 700; line-height: 1.3; letter-spacing: -.015em;
+    font-size: var(--h2-size); max-width: 34ch;
+}
+.kicker {
+    align-self: flex-start;
+    font-family: var(--font-mono); font-size: var(--small-size);
+    letter-spacing: .2em; text-transform: uppercase;
+    color: var(--acc); border: 1.5px solid var(--acc); padding: .3em .7em;
+}
+.rule { width: clamp(70px, 9vw, 180px); height: clamp(6px, .55vw, 12px); background: var(--ink); }
+
+/* One-line conclusion */
+.punch {
+    font-size: clamp(1rem, 1.3vw, 1.9rem); font-weight: 500; line-height: 1.5;
+    max-width: 62ch;
+}
+.punch::before {
+    content: ""; display: inline-block; width: .6em; height: .6em;
+    background: var(--acc); margin-right: .55em; vertical-align: .02em;
+}
+.punch b { color: var(--acc); font-weight: 700; }
+.punch code, .rows code, .hint code { font-family: var(--font-mono); font-weight: 600; }
+.hint {
+    font-size: var(--small-size); color: var(--mut); line-height: 1.55;
+    margin-top: .25em; padding-left: 1.15em;
+}
+.ask { font-size: clamp(1.2rem, 1.7vw, 2.4rem); font-weight: 700; }
+
+/* ===========================================
+   5. Code panels: code, debugger, and compiler output share one light panel
+   =========================================== */
+.panels {
+    display: grid; gap: clamp(.6rem, 1.6vw, 1.4rem);
+    grid-template-columns: 1fr 1fr; align-items: start;
+}
+.panel {
+    border: 2px solid var(--panel-b);
+    background: var(--panel);
+    min-width: 0; overflow: hidden;
+}
+.panel.accent { border-color: var(--acc); }
+/* Panel caption: light, no dark band */
+.cap {
+    display: flex; justify-content: space-between; gap: .8em;
+    font-family: var(--font-mono); font-size: var(--small-size); font-weight: 500;
+    letter-spacing: .04em; color: var(--mut);
+    padding: .4em .8em; border-bottom: 1.5px solid var(--cap-b);
+}
+.cap .side { color: var(--acc); }
+pre {
+    font-family: var(--font-mono); font-size: var(--code-size);
+    line-height: 1.55; white-space: pre; tab-size: 4;
+    padding: clamp(.5rem, 1.4vh, 1rem) clamp(.7rem, 1.3vw, 1.2rem);
+    overflow: hidden;
+}
+pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.c-hit { color: var(--acc); font-weight: 600; }
+.c-com, .c-dim { color: var(--dim); }
+.hl { background: var(--hl); color: var(--acc); font-weight: 600; display: block; }
+.hl .c-com { color: var(--acc); opacity: .75; }
+
+/* Comparison table */
+.rows {
+    border-collapse: collapse; background: var(--paper);
+    font-size: clamp(.9rem, 1.15vw, 1.7rem);
+}
+.rows th, .rows td { border: 2px solid var(--ink); padding: .45em .9em; text-align: left; vertical-align: top; }
+.rows th { font-family: var(--font-mono); font-weight: 500; font-size: var(--small-size); letter-spacing: .06em; color: var(--mut); }
+.rows tr.hit td { color: var(--acc); font-weight: 600; }
+
+.closing h1 { max-width: none; text-wrap: wrap; font-size: clamp(1.8rem, 3.3vw, 5.2rem); }
+.closing h1 + h1 { color: var(--acc); }
+.thanks { font-family: var(--font-mono); font-size: var(--body-size); color: var(--mut); }
+
+/* ===========================================
+   6. Step reveal: space is reserved, only visibility changes (no layout jump)
+   =========================================== */
+[data-step] {
+    opacity: 0; visibility: hidden; transform: translateY(14px);
+    transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease), visibility 0s linear var(--dur);
+}
+[data-step].on {
+    opacity: 1; visibility: visible; transform: none;
+    transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease), visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: .01ms !important; transition-delay: 0s !important; animation-duration: .01ms !important; }
+    [data-step] { transform: none; }
+}
+
+/* ===========================================
+   7. Speaker notes: N key, hidden by default
+   =========================================== */
+aside.notes { display: none; }
+#notesPanel {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 9997;
+    max-height: 42vh; overflow: auto;
+    background: var(--paper); border-top: 2px solid var(--ink);
+    box-shadow: 0 -8px 24px var(--shadow);
+    padding: clamp(.7rem, 1.6vh, 1.2rem) var(--slide-padding);
+}
+#notesPanel[hidden] { display: none; }
+#notesPanel .meta {
+    display: flex; gap: 1.4em; flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut);
+    margin-bottom: .5em;
+}
+#notesPanel .meta b { color: var(--acc); font-weight: 600; }
+#notesPanel .body { font-size: clamp(1rem, 1.25vw, 1.6rem); line-height: 1.65; }
+#notesPanel .body p + p { margin-top: .35em; }
+#notesPanel .body .st { font-family: var(--font-mono); color: var(--acc); font-weight: 600; margin-right: .4em; }
+
+/* Progress bar, nav dots, key hint */
+.progress-bar {
+    position: fixed; top: 0; left: 0; height: 4px; width: 100%;
+    background: var(--acc); z-index: 9999;
+    transform: scaleX(0); transform-origin: left center; transition: transform .2s linear;
+}
+.nav-dots {
+    position: fixed; right: clamp(.6rem, 1.4vw, 1.4rem); top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: .55rem; z-index: 9998;
+}
+.nav-dots button {
+    width: 9px; height: 9px; padding: 0; border: 1.5px solid var(--ink);
+    background: transparent; border-radius: 50%; cursor: pointer;
+}
+.nav-dots button.active { background: var(--acc); border-color: var(--acc); transform: scale(1.35); }
+.keyboard-hint {
+    position: fixed; left: clamp(.6rem,1.4vw,1.4rem); bottom: clamp(.4rem,1vh,.8rem);
+    font-family: var(--font-mono); font-size: clamp(.55rem,1vh,.72rem); color: var(--mut);
+    z-index: 9998; opacity: .75; animation: hint-out .5s 5s forwards;
+}
+@keyframes hint-out { to { opacity: 0; visibility: hidden; } }
+
+/* ===========================================
+   8. In-browser edit mode: E key or the top-left corner
+   =========================================== */
+.edit-hotzone { position: fixed; top: 0; left: 0; width: 80px; height: 80px; z-index: 10000; }
+.edit-toggle {
+    position: fixed; top: 14px; left: 14px;
+    width: 42px; height: 42px; border: 2px solid var(--ink);
+    background: var(--paper); border-radius: 50%; cursor: pointer;
+    font-size: 17px; line-height: 1;
+    opacity: 0; pointer-events: none; transition: opacity .3s ease;
+    z-index: 10001;
+}
+.edit-toggle.show, .edit-toggle.active { opacity: 1; pointer-events: auto; }
+.edit-toggle.active { background: var(--acc); border-color: var(--acc); }
+.edit-banner {
+    position: fixed; top: 4px; left: 0; right: 0;
+    background: var(--ink); color: var(--paper);
+    font-family: var(--font-mono); font-size: clamp(.6rem,1.1vh,.78rem);
+    padding: .45em 1em; text-align: center;
+    transform: translateY(-120%); transition: transform .3s var(--ease);
+    z-index: 10000;
+}
+body.edit-active .edit-banner { transform: none; }
+/* While editing, show every step so hidden text can be edited too */
+body.edit-active [data-step] { opacity: 1; visibility: visible; transform: none; }
+body.edit-active [contenteditable] { outline: 1px dashed var(--acc); outline-offset: 3px; }
+body.edit-active [contenteditable]:focus { outline: 2px solid var(--acc); background: var(--edit-bg); }
+/* Way back to the study index. publish.py rewrites the href to one ../ per folder below pages_dir, or drops the link when pages_dir has no index.html. Bottom-right is the only corner the deck chrome leaves free */
+.home-link {
+    position: fixed; right: clamp(.6rem,1.4vw,1.4rem); bottom: clamp(.4rem,1vh,.8rem); z-index: 9998;
+    font-family: var(--font-mono, monospace); font-size: clamp(.55rem,1vh,.72rem);
+    color: var(--mut); text-decoration: none; opacity: .75;
+}
+.home-link:hover { opacity: 1; text-decoration: underline; }
+
+/* ===========================================
+   9. Usage guidance: ? overlay and a one-time hint on first open
+   =========================================== */
+#helpOverlay {
+    position: fixed; inset: 0; z-index: 10002;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--scrim);
+}
+#helpOverlay[hidden], #firstHint[hidden] { display: none; }
+#helpOverlay .help-box {
+    background: var(--paper); color: var(--ink);
+    border: 2px solid var(--ink); box-shadow: 0 12px 32px var(--shadow);
+    padding: clamp(1rem, 2.4vh, 1.8rem) clamp(1.2rem, 2.4vw, 2.2rem);
+    max-width: min(90vw, 560px); max-height: 90vh; overflow: auto;
+}
+#helpOverlay h2 { font-size: var(--h3-size); margin-bottom: .6em; }
+#helpOverlay dl {
+    display: grid; grid-template-columns: max-content 1fr; gap: .35em 1.2em;
+    font-size: var(--small-size); line-height: 1.5;
+}
+#helpOverlay dt { font-family: var(--font-mono); font-weight: 600; color: var(--acc); }
+.help-save { margin-top: .9em; font-size: var(--small-size); font-weight: 600; word-break: keep-all; }
+#firstHint {
+    position: fixed; left: 50%; bottom: clamp(3.6rem, 11vh, 6.5rem); transform: translateX(-50%);
+    z-index: 10000; max-width: min(92vw, 640px);
+    background: var(--ink); color: var(--paper);
+    font-size: var(--small-size); line-height: 1.5; word-break: keep-all;
+    padding: .6em 1em; cursor: pointer;
+}
+
+/* ===========================================
+   10. Save and change notices (served mode, autosave)
+   =========================================== */
+#notices {
+    position: fixed; left: 50%; top: clamp(2.4rem, 6vh, 3.4rem); transform: translateX(-50%);
+    z-index: 10001; width: max-content; max-width: min(92vw, 720px);
+    display: flex; flex-direction: column; gap: .4em; pointer-events: none;
+}
+.notice {
+    pointer-events: auto;
+    background: var(--ink); color: var(--paper); box-shadow: 0 8px 24px var(--shadow);
+    border-left: .35em solid var(--acc);
+    font-size: var(--small-size); line-height: 1.5; word-break: keep-all;
+    padding: .55em 1em;
+}
+.notice button, #sizeBar button {
+    margin-left: .7em; padding: .1em .7em; border: 0; cursor: pointer;
+    font: inherit; font-weight: 600; background: var(--paper); color: var(--ink);
+}
+
+/* ===========================================
+   11. Size steps the student sets in edit mode (saved with the slide)
+   Text steps scale the element's own size with zoom: a font-size in em would
+   scale the parent's size, and each element sets its own size token.
+   Width steps scale the box's own width; the script measures it and writes
+   --box-w (never saved), clamped so the box stays on the slide and off
+   its neighbours.
+   =========================================== */
+.jd-t-s2 { zoom: var(--jd-t-s2); }
+.jd-t-s1 { zoom: var(--jd-t-s1); }
+.jd-t-l1 { zoom: var(--jd-t-l1); }
+.jd-t-l2 { zoom: var(--jd-t-l2); }
+.slide [style*="--box-w"] { width: var(--box-w); max-width: none; }
+#sizeBar {
+    position: fixed; z-index: 10001; display: flex; gap: .3em;
+    background: var(--ink); color: var(--paper); box-shadow: 0 8px 24px var(--shadow);
+    font-size: var(--small-size); padding: .3em;
+}
+#sizeBar[hidden], #sizeBar button[hidden] { display: none; }
+#sizeBar button { margin-left: 0; padding: .15em .6em; }
+#sizeBar button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/* ===========================================
+   12. Overflow marks: text that does not fit its box or its slide.
+   Shown in edit mode, where the student can act on them. The page never
+   fixes the layout itself. jd-measure holds steps in place while measuring
+   =========================================== */
+body.edit-active [data-jd-over], body.edit-active [data-jd-over]:focus {
+    outline: 3px solid var(--ink); outline-offset: 2px;
+    background-image: repeating-linear-gradient(45deg, var(--hl) 0 6px, transparent 6px 12px);
+}
+body.jd-measure [data-step] { transform: none; transition: none; }
+
+/* ===========================================
+   13. Layout for this deck (no new colors)
+   =========================================== */
+.two { display: grid; grid-template-columns: 1.15fr 1fr; gap: clamp(.8rem, 2vw, 2rem); align-items: start; min-height: 0; }
+.two.even { grid-template-columns: 1fr 1fr; }
+.stack { display: flex; flex-direction: column; gap: var(--content-gap); min-width: 0; }
+.shot { border: 2px solid var(--ink); background: var(--paper); min-width: 0; }
+.board { margin: 0; min-height: 0; color: var(--ink); }
+.board svg { font-family: var(--font-body); display: block; width: 100%; height: auto; max-height: 66vh; }
+.mapslide .rg { opacity: .14; }
+.mapslide .rg.hi { opacity: 1; }
+.board figcaption { font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut); margin-top: .4em; }
+.shot img { display: block; width: 100%; max-height: 52vh; object-fit: contain; }
+.shot.slim img { max-height: 16vh; }
+.shot.quiz img { max-height: 60vh; }
+.shot figcaption, .box .cap { font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut); }
+.shot figcaption { padding: .35em .8em; border-top: 1.5px solid var(--cap-b); }
+.box { border: 2px solid var(--ink); background: var(--panel); min-width: 0; }
+.rowlist { list-style: none; padding: .5em .9em; display: flex; flex-direction: column; gap: .35em; }
+.rowlist li { font-size: var(--body-size); line-height: 1.45; }
+.rowlist b { font-weight: 700; margin-right: .5em; }
+.rowlist code, .line code, .crit code, .rows code, .terms code, .lanes code { font-family: var(--font-mono); }
+.line { font-size: var(--body-size); padding: .5em .9em; }
+.box pre { border-top: 1.5px solid var(--cap-b); }
+.crit { font-size: var(--small-size); padding: .45em .9em .6em; border-top: 1.5px solid var(--cap-b); }
+.crit b { color: var(--acc); }
+.flow { display: grid; justify-items: start; gap: .15em; }
+.flow .box { padding: .35em .9em; font-size: var(--body-size); font-weight: 500; }
+.flow .arrow { font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut); padding-left: 1em; }
+.terms { display: grid; grid-template-columns: max-content 1fr; gap: .25em 1em; font-size: var(--small-size); }
+.terms dt { font-weight: 700; }
+.terms dd { color: var(--mut); }
+.video-slot figcaption { color: var(--acc); }
+.lanes { display: flex; flex-direction: column; gap: clamp(.4rem, 1.2vh, .9rem); }
+.lane { display: flex; align-items: center; gap: clamp(.4rem, .9vw, .9rem); flex-wrap: wrap; border-left: 6px solid var(--grid); padding-left: .8em; }
+.lane.dev { border-left-color: var(--ink); }
+.lane.main { border-left-color: var(--acc); }
+.lname { font-family: var(--font-mono); font-weight: 600; font-size: var(--small-size); width: 9em; }
+.lnote { font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut); }
+.chip, .lane .m { font-family: var(--font-mono); font-size: var(--body-size); border: 2px solid var(--ink); background: var(--paper); padding: .15em .6em; }
+.lane .m i, .score i { display: block; font-style: normal; font-size: var(--small-size); color: var(--mut); }
+.lane .m.hit { border-color: var(--acc); color: var(--acc); }
+.score { display: flex; gap: clamp(.6rem, 1.6vw, 1.6rem); flex-wrap: wrap; align-items: end; }
+.score span { font-family: var(--font-mono); font-size: var(--h3-size); color: var(--mut); }
+.score b { color: var(--ink); font-size: var(--h2-size); }
+.score .hit b { color: var(--acc); }
+.closing h1 { font-size: clamp(1.4rem, 2.3vw, 3.6rem); max-width: 40ch; }
+#s3 h2 { max-width: none; text-wrap: wrap; }   /* one line where it fits */
+.closing .panel pre { font-size: var(--small-size); }
+h1 { line-height: 1.34; padding-bottom: .1em; } h2 { line-height: 1.42; padding-bottom: .1em; } .closing h1 { line-height: 1.42; }
+/* People colors (slides s5, s70): one color per teammate, gray = several people's code */
+:root { --p-ben: var(--acc); --p-nuri: #0e7c6b; --p-jsy: #2f5bd3; --p-team: #9a9a9a; }
+.who { font-family: var(--font-mono); font-size: var(--small-size); font-weight: 600; white-space: nowrap; }
+.who::before { content: ''; display: inline-block; width: .7em; height: .7em; margin-right: .35em; background: var(--c); vertical-align: -.05em; }
+.who.ben { --c: var(--p-ben); } .who.nuri { --c: var(--p-nuri); } .who.jsy { --c: var(--p-jsy); } .who.team { --c: var(--p-team); }
+
+/* s70: Tuesday assignment vs actual code */
+.assign { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: clamp(.5rem, 1.4vh, 1.1rem) clamp(.8rem, 2vw, 2rem); align-items: center; }
+.assign .colh { font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut); border-bottom: 1.5px solid var(--cap-b); padding-bottom: .25em; }
+.assign img { display: block; width: 100%; max-height: 17vh; object-fit: contain; object-position: left center; }
+.assign .did { border-left: 6px solid var(--c); padding: .3em 0 .3em .9em; font-size: var(--body-size); line-height: 1.45; }
+.assign .did .who { display: block; margin-bottom: .15em; }
+.assign .did code { font-family: var(--font-mono); font-size: .9em; }
+.assign .did.ben { --c: var(--p-ben); } .assign .did.nuri { --c: var(--p-nuri); } .assign .did.jsy { --c: var(--p-jsy); }
+
+/* s5: board replay */
+.replay { display: grid; grid-template-columns: 1.25fr 1fr; gap: clamp(.8rem, 2vw, 2rem); align-items: start; min-height: 0; }
+.pboard { border: 2px solid var(--ink); background: var(--paper); padding: clamp(.4rem, 1.1vh, .9rem); display: grid; grid-template-columns: 1fr 1fr; gap: clamp(.3rem, .9vh, .7rem); cursor: pointer; min-width: 0; }
+.pblock { border: 1.5px solid var(--cap-b); padding: .35em .5em .45em; min-width: 0; }
+.pblock.wide { grid-column: span 2; }
+.pblock .bh { display: flex; align-items: baseline; gap: .45em; font-size: var(--small-size); line-height: 1.3; }
+.pblock .bh b { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pblock .bh .d { font-family: var(--font-mono); color: var(--mut); border: 1px solid var(--cap-b); padding: 0 .3em; flex: none; }
+.pblock .bh .n { margin-left: auto; font-family: var(--font-mono); color: var(--mut); flex: none; }
+.pblock .owners { display: flex; gap: .7em; margin: .15em 0 .25em; }
+.pblock .bar { height: 4px; background: color-mix(in srgb, var(--ink) 10%, transparent); margin-bottom: .35em; }
+.pblock .bar i { display: block; height: 100%; width: 0; background: var(--ink); transition: width .25s linear; }
+.pblock .cells { display: flex; flex-wrap: wrap; gap: 3px; }
+.pblock .cells span { width: clamp(11px, 1.3vw, 26px); aspect-ratio: 1; border: 1.5px solid color-mix(in srgb, var(--ink) 35%, transparent); background: var(--paper); transition: background-color .2s, border-color .2s, transform .2s var(--ease); }
+.pblock .cells span.on { background: var(--c); border-color: var(--c); transform: scale(1.08); }
+.pblock .cells span.on.settled { transform: none; }
+.pstage { display: grid; min-width: 0; }
+.pstage > * { grid-area: 1 / 1; min-width: 0; transition: opacity .6s var(--ease); }
+.preal { display: flex; flex-direction: column; gap: .4em; align-items: center; justify-content: center; border: 2px solid var(--ink); background: var(--paper); padding: clamp(.4rem, 1.1vh, .9rem); opacity: 0; pointer-events: none; min-height: 0; overflow: hidden; }
+.preal img { display: block; max-width: 100%; min-height: 0; object-fit: contain; }
+.preal img:last-child { flex: 1; max-height: 44vh; }
+.pstage.real .preal { opacity: 1; }
+.pstage.real .pboard { opacity: 0; }
+.pstage.real + .ptotal > span:last-child { visibility: hidden; }
+.ptotal { display: flex; justify-content: space-between; align-items: baseline; font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut); padding-top: .35em; }
+.ptotal b { font-size: var(--h3-size); color: var(--ink); }
+.pflow { display: grid; grid-template-columns: max-content max-content 1fr; gap: .45em .7em; align-items: center; font-size: var(--body-size); }
+.pflow code { font-family: var(--font-mono); }
+.pflow .br { font-family: var(--font-mono); font-size: var(--small-size); border: 1.5px solid var(--ink); padding: .1em .5em; }
+.pflow .to { color: var(--mut); }
+.pflow .head2 { grid-column: 1 / -1; font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut); border-bottom: 1.5px solid var(--cap-b); padding-bottom: .2em; }
+.pflow .end { grid-column: 1 / -1; border: 2px solid var(--ink); padding: .35em .8em; font-weight: 500; margin-top: .2em; }
+.pknobs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(.5rem, 1.4vw, 1.4rem); font-size: var(--small-size); border-top: 1.5px solid var(--cap-b); padding-top: .5em; }
+.pknobs dt { font-family: var(--font-mono); font-weight: 600; }
+.pknobs dd { color: var(--mut); line-height: 1.4; }
+
+/* s8: rewrite/fwe blank-fill drill */
+.drill { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(.8rem, 2vw, 2rem); align-items: center; }
+.drill img { display: block; width: 100%; max-height: 34vh; object-fit: contain; object-position: left center; }
+#s8 .drill img { max-height: 56vh; }
+.drill figcaption { font-family: var(--font-mono); font-size: var(--small-size); color: var(--mut); margin-top: .3em; }
+.track { list-style: none; margin: 0; padding: 0; display: grid; gap: clamp(.25rem, .8vh, .6rem); }
+.track li { display: grid; grid-template-columns: 1.4em 5em 1fr; align-items: baseline; gap: .6em; font-size: var(--body-size); }
+.track .n { font-family: var(--font-mono); color: var(--mut); }
+.track .s { font-family: var(--font-mono); font-size: var(--small-size); font-weight: 600; }
+.track .done .s { color: var(--ink); }
+.track .half .s { color: var(--acc); }
+.track .none { color: var(--mut); }
+.track .none .s { color: var(--mut); font-weight: 500; }
+.track code { font-family: var(--font-mono); font-size: .92em; }
+</style>
+</head>
+<body>
+<a class="home-link" href="../../">← 학습 기록</a>
+
+<div class="progress-bar" id="progressBar"></div>
+<nav class="nav-dots" id="navDots" aria-label="슬라이드 이동"></nav>
+<div class="keyboard-hint">→ 다음 단계 · ← 이전 · N 발표자 노트 · E 편집 · Ctrl+S 저장 · ? 도움말</div>
+
+<div class="edit-hotzone" aria-hidden="true"></div>
+<button class="edit-toggle" id="editToggle" title="편집 모드 (E)" aria-label="편집 모드 켜기">✏️</button>
+<div class="edit-banner" id="editBanner">편집 모드 · 글자를 눌러 고치세요 · Tab 크기 조절 · N 노트도 고칠 수 있어요 · Esc 커서 빼기 · Ctrl+S 저장 · E 끄기</div>
+
+<!-- ============================================================
+     01 · Title
+     ============================================================ -->
+<section class="slide" id="s1">
+    <div class="head"><span>8팀 · 한 주</span><span class="num"></span></div>
+    <div class="slide-content">
+        <span class="kicker">Krafton Jungle · Week 08</span>
+        <h1>1주일간의 <em>8팀</em></h1>
+        <p class="ask">Pintos Userprog</p>
+        <p class="punch">누가 짠 코드든 합칠 수 있게: <b>컨벤션 · <code>ptest</code> · 보드</b></p>
+    </div>
+    <div class="foot"><span>조진근 · benjohnbill/pintos-userprog</span><span>10.15 목 — 10.21 수</span></div>
+    <aside class="notes" data-sec="10">
+        <p>8팀 조진근입니다. 저희 팀의 일주일을 날짜순으로 보여 드리겠습니다. 한 줄로 요약하면, 누가 짠 코드든 합칠 수 있게 — 컨벤션, 테스트 명령, 분업표였습니다.</p>
+    </aside>
+</section>
+
+<!-- ============================================================
+     02 · 목: principles and convention
+     ============================================================ -->
+<section class="slide" id="s2">
+    <div class="head"><span>목 · 10.15</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2>목요일(10/15) :&nbsp;&nbsp;<em>협업 원칙과 컨벤션</em>&nbsp;정립</h2>
+        <figure class="board">
+            <svg viewBox="0 0 1600 745" role="img" aria-label="첫날 칠판 지도: 회의와 PR의 단위는 작업이 정하고, 작업은 공통과 분할로 나뉜다. AI를 통한 시스템 콜 단위 분배로 공통에서 분할로, 로직·변수 공유가 많으면 분할에서 공통으로 옮긴다. 공통인 fork·wait·exec의 선행 요건에서 첫날 할 일이 나왔고, 컨벤션에서 CONVENTION.md와 make ptest가 나왔다." fill="none" stroke="currentColor" stroke-width="2.5"><defs><marker id="b-ah-s2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0a0a0a" stroke="none"/></marker><marker id="b-ah-acc-s2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ff3300" stroke="none"/></marker></defs><g data-step="1"><g class="rg"><rect x="50" y="115" width="120" height="52" rx="4"/><rect x="50" y="195" width="120" height="52" rx="4"/><path d="M182 120 Q205 120 205 140 L205 170 Q205 181 218 181 Q205 181 205 192 L205 222 Q205 242 182 242"/><line x1="222" y1="181" x2="258" y2="181" marker-end="url(#b-ah-s2)"/><ellipse cx="322" cy="181" rx="62" ry="34"/><line x1="370" y1="160" x2="532" y2="112" marker-end="url(#b-ah-s2)"/><line x1="370" y1="202" x2="532" y2="316" marker-end="url(#b-ah-s2)"/><g fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle"><text x="110" y="150">회의</text><text x="110" y="230">PR</text><text x="322" y="190">작업</text></g><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="110" y="95">팀 활동의 단위</text><text x="322" y="245">단위를 정한다</text></g></g><g class="rg"><ellipse cx="600" cy="100" rx="66" ry="36"/><text x="600" y="109" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">공통</text></g><g class="rg"><ellipse cx="600" cy="330" rx="66" ry="36"/><text x="600" y="339" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">분할</text></g></g><g data-step="2"><g class="rg"><line x1="636" y1="137" x2="636" y2="290" stroke="#ff3300" marker-end="url(#b-ah-acc-s2)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="178" font-weight="700" fill="#ff3300">↓ 공통 → 분할</text><text x="686" y="204">AI를 통한</text><text x="686" y="228">시스템 콜 단위 일 분배</text></g></g><g class="rg"><line x1="564" y1="293" x2="564" y2="140" stroke="#ff3300" marker-end="url(#b-ah-acc-s2)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="268" font-weight="700" fill="#ff3300">↑ 분할 → 공통</text><text x="686" y="294">로직·변수를 많이 공유하면</text><text x="686" y="318">다 짜 보고 리뷰</text></g></g></g><g data-step="3"><g class="rg"><line x1="668" y1="100" x2="996" y2="100" marker-end="url(#b-ah-s2)"/><rect x="1000" y="40" width="560" height="360" rx="4" fill="#f7f7f5"/><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="832" y="84">선행 요건</text><text x="832" y="128" style="font-family:var(--font-mono)" font-size="15">args · write/exit/wait 루프</text></g><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="88" font-size="26" font-weight="700">첫 날(10/15)에 할 일</text><text x="1030" y="140">1  Pintos Gitbook 읽기</text><text x="1030" y="188">2  Shell·userprog가 도는 방식</text><text x="1062" y="213" fill="#6b6b6b" font-size="16">args-passing 준비 · 각자 AI로 조사</text><text x="1030" y="260">3  System Call 조사</text></g><line x1="1030" y1="295" x2="1530" y2="295" stroke="#6b6b6b" stroke-width="1.5"/></g><g class="rg"><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="345" style="font-family:var(--font-mono)" font-size="24" font-weight="700">★ fork() wait() exec()</text><text x="1062" y="375" fill="#6b6b6b" font-size="16">이번 주 핵심 → 공통으로</text></g></g><g class="rg"><line x1="668" y1="345" x2="996" y2="345" stroke-dasharray="9 7" marker-end="url(#b-ah-s2)"/><text x="832" y="378" fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle">프로세스 syscall 이후</text></g></g><g data-step="4"><g class="rg"><rect x="50" y="470" width="190" height="52" rx="4"/><line x1="145" y1="522" x2="145" y2="566" marker-end="url(#b-ah-s2)"/><rect x="50" y="570" width="340" height="160" rx="4" fill="#f7f7f5"/><line x1="240" y1="496" x2="376" y2="496" marker-end="url(#b-ah-s2)"/><rect x="380" y="455" width="430" height="82" rx="4"/><g fill="#0a0a0a" stroke="none" font-size="20"><text x="145" y="505" font-size="24" font-weight="700" text-anchor="middle">Convention</text><text x="70" y="606" fill="#6b6b6b" font-size="17">같이 볼 것</text><text x="70" y="643">✓ 이번 주 목표 한 줄</text><text x="70" y="679">✓ 날짜별 현황 (test)</text><text x="70" y="715">✓ 공통/분할 방법론</text><text x="595" y="492" font-weight="700" text-anchor="middle">오픈소스 규약 → formatter + linter</text><text x="595" y="520" fill="#6b6b6b" font-size="16" text-anchor="middle">함수·모듈·API·변수 이름과 모양 통일</text></g></g><g class="rg"><line x1="810" y1="480" x2="916" y2="471" marker-end="url(#b-ah-s2)"/><rect x="920" y="445" width="260" height="52" rx="4"/><g stroke="none" font-size="16" style="font-family:var(--font-mono)"><text x="1050" y="478" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle">CONVENTION.md</text><text x="1200" y="466" fill="#6b6b6b">.clang-format · .clang-tidy</text><text x="1200" y="490" fill="#6b6b6b">PR #104 · 10.15 merge</text></g></g><g class="rg"><line x1="810" y1="512" x2="916" y2="597" marker-end="url(#b-ah-s2)"/><rect x="920" y="575" width="260" height="52" rx="4"/><g stroke="none" font-size="16"><text x="1050" y="608" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle" style="font-family:var(--font-mono)">make ptest</text><text x="1200" y="596" fill="#6b6b6b">같은 테스트 명령</text><text x="1200" y="620" fill="#6b6b6b">결과는 보드로</text></g></g></g></svg>
+        </figure>
+    </div>
+    <div class="foot"><span>CONVENTION.md · PR #104</span><span>목</span></div>
+    <aside class="notes" data-sec="20">
+        <p>지난주 발표가 끝나고 코치님께서 팀 컨벤션을 미리 정하고 가라고 하셨죠.</p>
+        <p><span class="st">▸1</span>그래서 첫날 칠판부터 그렸습니다. 팀 활동은 회의와 PR 단위로 돌고, 그 단위는 작업이 정합니다. 그래서 작업을 공통과 분할로 나눴습니다.</p>
+        <p><span class="st">▸2</span>둘은 고정이 아닙니다. 시간이 부족하면 AI로 시스템 콜 단위로 일을 나눠 분할로 가고, 로직과 변수를 많이 공유하면 다 짜 보고 리뷰하는 공통으로 돌아옵니다.</p>
+        <p><span class="st">▸3</span>이번 주 핵심인 fork, wait, exec는 공통으로 잡았고, 그 선행 요건에서 첫날 할 일이 나왔습니다. 분할은 프로세스 syscall이 끝난 뒤로 미뤘습니다.</p>
+        <p><span class="st">▸4</span>다른 한 축은 컨벤션입니다. 오픈소스 규약을 포매터와 린터로 묶었고, 여기서 CONVENTION.md와 같은 테스트 명령 make ptest가 나왔습니다. 이 지도가 어떻게 이루어졌는지 차례로 보여 드리겠습니다.</p>
+    </aside>
+</section>
+
+<!-- map-slide:start (generated by map-slides.py; edit the script, not this block) -->
+<section class="slide mapslide" id="m3">
+    <div class="head"><span>지도 · 다음</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2><em>첫 날에 할 일</em> → 금요일 쪽지 시험</h2>
+        <figure class="board"><svg viewBox="0 0 1600 745" role="img" aria-label="첫날 칠판 지도: 회의와 PR의 단위는 작업이 정하고, 작업은 공통과 분할로 나뉜다. AI를 통한 시스템 콜 단위 분배로 공통에서 분할로, 로직·변수 공유가 많으면 분할에서 공통으로 옮긴다. 공통인 fork·wait·exec의 선행 요건에서 첫날 할 일이 나왔고, 컨벤션에서 CONVENTION.md와 make ptest가 나왔다." fill="none" stroke="currentColor" stroke-width="2.5"><defs><marker id="b-ah-m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0a0a0a" stroke="none"/></marker><marker id="b-ah-acc-m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ff3300" stroke="none"/></marker></defs><g class="rg"><rect x="50" y="115" width="120" height="52" rx="4"/><rect x="50" y="195" width="120" height="52" rx="4"/><path d="M182 120 Q205 120 205 140 L205 170 Q205 181 218 181 Q205 181 205 192 L205 222 Q205 242 182 242"/><line x1="222" y1="181" x2="258" y2="181" marker-end="url(#b-ah-m3)"/><ellipse cx="322" cy="181" rx="62" ry="34"/><line x1="370" y1="160" x2="532" y2="112" marker-end="url(#b-ah-m3)"/><line x1="370" y1="202" x2="532" y2="316" marker-end="url(#b-ah-m3)"/><g fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle"><text x="110" y="150">회의</text><text x="110" y="230">PR</text><text x="322" y="190">작업</text></g><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="110" y="95">팀 활동의 단위</text><text x="322" y="245">단위를 정한다</text></g></g><g class="rg"><ellipse cx="600" cy="100" rx="66" ry="36"/><text x="600" y="109" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">공통</text></g><g class="rg"><ellipse cx="600" cy="330" rx="66" ry="36"/><text x="600" y="339" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">분할</text></g><g class="rg"><line x1="636" y1="137" x2="636" y2="290" stroke="#ff3300" marker-end="url(#b-ah-acc-m3)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="178" font-weight="700" fill="#ff3300">↓ 공통 → 분할</text><text x="686" y="204">AI를 통한</text><text x="686" y="228">시스템 콜 단위 일 분배</text></g></g><g class="rg"><line x1="564" y1="293" x2="564" y2="140" stroke="#ff3300" marker-end="url(#b-ah-acc-m3)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="268" font-weight="700" fill="#ff3300">↑ 분할 → 공통</text><text x="686" y="294">로직·변수를 많이 공유하면</text><text x="686" y="318">다 짜 보고 리뷰</text></g></g><g class="rg hi"><line x1="668" y1="100" x2="996" y2="100" marker-end="url(#b-ah-m3)"/><rect x="1000" y="40" width="560" height="360" rx="4" fill="#f7f7f5"/><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="832" y="84">선행 요건</text><text x="832" y="128" style="font-family:var(--font-mono)" font-size="15">args · write/exit/wait 루프</text></g><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="88" font-size="26" font-weight="700">첫 날(10/15)에 할 일</text><text x="1030" y="140">1  Pintos Gitbook 읽기</text><text x="1030" y="188">2  Shell·userprog가 도는 방식</text><text x="1062" y="213" fill="#6b6b6b" font-size="16">args-passing 준비 · 각자 AI로 조사</text><text x="1030" y="260">3  System Call 조사</text></g><line x1="1030" y1="295" x2="1530" y2="295" stroke="#6b6b6b" stroke-width="1.5"/></g><g class="rg"><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="345" style="font-family:var(--font-mono)" font-size="24" font-weight="700">★ fork() wait() exec()</text><text x="1062" y="375" fill="#6b6b6b" font-size="16">이번 주 핵심 → 공통으로</text></g></g><g class="rg"><line x1="668" y1="345" x2="996" y2="345" stroke-dasharray="9 7" marker-end="url(#b-ah-m3)"/><text x="832" y="378" fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle">프로세스 syscall 이후</text></g><g class="rg"><rect x="50" y="470" width="190" height="52" rx="4"/><line x1="145" y1="522" x2="145" y2="566" marker-end="url(#b-ah-m3)"/><rect x="50" y="570" width="340" height="160" rx="4" fill="#f7f7f5"/><line x1="240" y1="496" x2="376" y2="496" marker-end="url(#b-ah-m3)"/><rect x="380" y="455" width="430" height="82" rx="4"/><g fill="#0a0a0a" stroke="none" font-size="20"><text x="145" y="505" font-size="24" font-weight="700" text-anchor="middle">Convention</text><text x="70" y="606" fill="#6b6b6b" font-size="17">같이 볼 것</text><text x="70" y="643">✓ 이번 주 목표 한 줄</text><text x="70" y="679">✓ 날짜별 현황 (test)</text><text x="70" y="715">✓ 공통/분할 방법론</text><text x="595" y="492" font-weight="700" text-anchor="middle">오픈소스 규약 → formatter + linter</text><text x="595" y="520" fill="#6b6b6b" font-size="16" text-anchor="middle">함수·모듈·API·변수 이름과 모양 통일</text></g></g><g class="rg"><line x1="810" y1="480" x2="916" y2="471" marker-end="url(#b-ah-m3)"/><rect x="920" y="445" width="260" height="52" rx="4"/><g stroke="none" font-size="16" style="font-family:var(--font-mono)"><text x="1050" y="478" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle">CONVENTION.md</text><text x="1200" y="466" fill="#6b6b6b">.clang-format · .clang-tidy</text><text x="1200" y="490" fill="#6b6b6b">PR #104 · 10.15 merge</text></g></g><g class="rg"><line x1="810" y1="512" x2="916" y2="597" marker-end="url(#b-ah-m3)"/><rect x="920" y="575" width="260" height="52" rx="4"/><g stroke="none" font-size="16"><text x="1050" y="608" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle" style="font-family:var(--font-mono)">make ptest</text><text x="1200" y="596" fill="#6b6b6b">같은 테스트 명령</text><text x="1200" y="620" fill="#6b6b6b">결과는 보드로</text></g></g></svg></figure>
+    </div>
+    <div class="foot"><span>첫날 칠판 지도</span><span>금 · 10.16</span></div>
+    <aside class="notes" data-sec="3"><p>먼저, 첫날에 할 일이 어떻게 이어졌는지입니다.</p></aside>
+</section>
+<!-- map-slide:end -->
+
+<!-- ============================================================
+     03 · 금: concept quiz
+     ============================================================ -->
+<section class="slide" id="s3">
+    <div class="head"><span>금 · 10.16</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2>금요일 아침(10/16) : 목요일에 공부한 내용에 대한 <em>30분 쪽지 시험</em></h2>
+        <div class="two even">
+            <figure class="shot quiz">
+                <img src="p2-team-workflow.assets/quiz-1.png" alt="쪽지 시험 1·2번: 일반 함수 호출과 시스템 콜의 레지스터, 유저가 스택에서 인자를 꺼낼 수 있나">
+                <figcaption>1 · 2번</figcaption>
+            </figure>
+            <figure class="shot quiz">
+                <img src="p2-team-workflow.assets/quiz-2.png" alt="쪽지 시험 3·4번: 명령줄을 자르는 곳, exec-once의 마지막 두 줄">
+                <figcaption>3 · 4번</figcaption>
+            </figure>
+        </div>
+        <p class="punch">13:00 코치님의 요약 강의를 <b>듣기 위한 사전준비</b></p>
+    </div>
+    <div class="foot"><span>benjohnbill.github.io/study/week08/userprog-flow-map.html</span><span>금</span></div>
+    <aside class="notes" data-sec="15">
+        <p>금요일 아침에는 전날 공부한 내용으로 30분 쪽지 시험을 봤습니다. 13시 코치님의 요약 강의를 듣기 위한 사전준비였습니다.</p>
+    </aside>
+</section>
+
+<!-- map-slide:start (generated by map-slides.py; edit the script, not this block) -->
+<section class="slide mapslide" id="m4">
+    <div class="head"><span>지도 · 다음</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2><em>분할</em> → 시스템 콜 단위로 다시 나누기</h2>
+        <figure class="board"><svg viewBox="0 0 1600 745" role="img" aria-label="첫날 칠판 지도: 회의와 PR의 단위는 작업이 정하고, 작업은 공통과 분할로 나뉜다. AI를 통한 시스템 콜 단위 분배로 공통에서 분할로, 로직·변수 공유가 많으면 분할에서 공통으로 옮긴다. 공통인 fork·wait·exec의 선행 요건에서 첫날 할 일이 나왔고, 컨벤션에서 CONVENTION.md와 make ptest가 나왔다." fill="none" stroke="currentColor" stroke-width="2.5"><defs><marker id="b-ah-m4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0a0a0a" stroke="none"/></marker><marker id="b-ah-acc-m4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ff3300" stroke="none"/></marker></defs><g class="rg"><rect x="50" y="115" width="120" height="52" rx="4"/><rect x="50" y="195" width="120" height="52" rx="4"/><path d="M182 120 Q205 120 205 140 L205 170 Q205 181 218 181 Q205 181 205 192 L205 222 Q205 242 182 242"/><line x1="222" y1="181" x2="258" y2="181" marker-end="url(#b-ah-m4)"/><ellipse cx="322" cy="181" rx="62" ry="34"/><line x1="370" y1="160" x2="532" y2="112" marker-end="url(#b-ah-m4)"/><line x1="370" y1="202" x2="532" y2="316" marker-end="url(#b-ah-m4)"/><g fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle"><text x="110" y="150">회의</text><text x="110" y="230">PR</text><text x="322" y="190">작업</text></g><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="110" y="95">팀 활동의 단위</text><text x="322" y="245">단위를 정한다</text></g></g><g class="rg"><ellipse cx="600" cy="100" rx="66" ry="36"/><text x="600" y="109" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">공통</text></g><g class="rg hi"><ellipse cx="600" cy="330" rx="66" ry="36"/><text x="600" y="339" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">분할</text></g><g class="rg hi"><line x1="636" y1="137" x2="636" y2="290" stroke="#ff3300" marker-end="url(#b-ah-acc-m4)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="178" font-weight="700" fill="#ff3300">↓ 공통 → 분할</text><text x="686" y="204">AI를 통한</text><text x="686" y="228">시스템 콜 단위 일 분배</text></g></g><g class="rg"><line x1="564" y1="293" x2="564" y2="140" stroke="#ff3300" marker-end="url(#b-ah-acc-m4)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="268" font-weight="700" fill="#ff3300">↑ 분할 → 공통</text><text x="686" y="294">로직·변수를 많이 공유하면</text><text x="686" y="318">다 짜 보고 리뷰</text></g></g><g class="rg"><line x1="668" y1="100" x2="996" y2="100" marker-end="url(#b-ah-m4)"/><rect x="1000" y="40" width="560" height="360" rx="4" fill="#f7f7f5"/><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="832" y="84">선행 요건</text><text x="832" y="128" style="font-family:var(--font-mono)" font-size="15">args · write/exit/wait 루프</text></g><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="88" font-size="26" font-weight="700">첫 날(10/15)에 할 일</text><text x="1030" y="140">1  Pintos Gitbook 읽기</text><text x="1030" y="188">2  Shell·userprog가 도는 방식</text><text x="1062" y="213" fill="#6b6b6b" font-size="16">args-passing 준비 · 각자 AI로 조사</text><text x="1030" y="260">3  System Call 조사</text></g><line x1="1030" y1="295" x2="1530" y2="295" stroke="#6b6b6b" stroke-width="1.5"/></g><g class="rg"><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="345" style="font-family:var(--font-mono)" font-size="24" font-weight="700">★ fork() wait() exec()</text><text x="1062" y="375" fill="#6b6b6b" font-size="16">이번 주 핵심 → 공통으로</text></g></g><g class="rg"><line x1="668" y1="345" x2="996" y2="345" stroke-dasharray="9 7" marker-end="url(#b-ah-m4)"/><text x="832" y="378" fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle">프로세스 syscall 이후</text></g><g class="rg"><rect x="50" y="470" width="190" height="52" rx="4"/><line x1="145" y1="522" x2="145" y2="566" marker-end="url(#b-ah-m4)"/><rect x="50" y="570" width="340" height="160" rx="4" fill="#f7f7f5"/><line x1="240" y1="496" x2="376" y2="496" marker-end="url(#b-ah-m4)"/><rect x="380" y="455" width="430" height="82" rx="4"/><g fill="#0a0a0a" stroke="none" font-size="20"><text x="145" y="505" font-size="24" font-weight="700" text-anchor="middle">Convention</text><text x="70" y="606" fill="#6b6b6b" font-size="17">같이 볼 것</text><text x="70" y="643">✓ 이번 주 목표 한 줄</text><text x="70" y="679">✓ 날짜별 현황 (test)</text><text x="70" y="715">✓ 공통/분할 방법론</text><text x="595" y="492" font-weight="700" text-anchor="middle">오픈소스 규약 → formatter + linter</text><text x="595" y="520" fill="#6b6b6b" font-size="16" text-anchor="middle">함수·모듈·API·변수 이름과 모양 통일</text></g></g><g class="rg"><line x1="810" y1="480" x2="916" y2="471" marker-end="url(#b-ah-m4)"/><rect x="920" y="445" width="260" height="52" rx="4"/><g stroke="none" font-size="16" style="font-family:var(--font-mono)"><text x="1050" y="478" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle">CONVENTION.md</text><text x="1200" y="466" fill="#6b6b6b">.clang-format · .clang-tidy</text><text x="1200" y="490" fill="#6b6b6b">PR #104 · 10.15 merge</text></g></g><g class="rg"><line x1="810" y1="512" x2="916" y2="597" marker-end="url(#b-ah-m4)"/><rect x="920" y="575" width="260" height="52" rx="4"/><g stroke="none" font-size="16"><text x="1050" y="608" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle" style="font-family:var(--font-mono)">make ptest</text><text x="1200" y="596" fill="#6b6b6b">같은 테스트 명령</text><text x="1200" y="620" fill="#6b6b6b">결과는 보드로</text></g></g></svg></figure>
+    </div>
+    <div class="foot"><span>첫날 칠판 지도</span><span>토 · 10.17</span></div>
+    <aside class="notes" data-sec="3"><p>다음은 분할입니다.</p></aside>
+</section>
+<!-- map-slide:end -->
+
+<!-- ============================================================
+     04 · 목~수: the week as one git graph (generated by gitgraph.py; edit the script, not this block)
+     ============================================================ -->
+<section class="slide" id="s4">
+    <div class="head"><span>목 – 수 · 10.15 – 10.21</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2>전체 Git Log : 월요일(10/19)까지<em>&nbsp;[공통 ]<br>화요일(10/20)부터 [분업]</em></h2>
+        <figure class="board"><svg viewBox="0 0 1600 655" role="img" aria-label="팀 저장소의 일주일 git graph. develop이 가운데 있고 benjohnbill은 위, nuri와 JSY는 아래에 있다. 세 사람이 같은 main에서 출발해 각자 짜고, 토·월·화에는 integrate 브랜치에서 골라 develop에 합쳤으며 수요일에는 기능마다 develop으로 바로 PR을 올렸다. 합칠 때마다 develop을 각자 받아갔다. 월요일 마감 merge에서는 nuri의 wait·fork와 JSY의 exec가 채택되고 benjohnbill의 wait·exec와 JSY의 wait는 빠졌다. 통과 수는 18/95에서 96/96까지 올라갔다. 수요일 저녁 develop을 main에 합쳤다. benjohnbill의 rewrite/fwe 브랜치는 빈칸 다시 짜기 중 fork에서 멈췄고 develop에 합치지 않았다." fill="none" stroke="currentColor"><defs><marker id="gg-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:#0a0a0a" stroke="none"/></marker><marker id="gg-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:#6b6b6b" stroke="none"/></marker><marker id="gg-ben" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--p-ben,#ff3300)" stroke="none"/></marker><marker id="gg-nuri" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--p-nuri,#0e7c6b)" stroke="none"/></marker><marker id="gg-jsy" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--p-jsy,#2f5bd3)" stroke="none"/></marker></defs><g stroke-width="1" stroke="#ebebeb"><line x1="150" y1="18" x2="150" y2="575"/><line x1="300" y1="18" x2="300" y2="575"/><line x1="390" y1="18" x2="390" y2="575"/><line x1="640" y1="18" x2="640" y2="575"/><line x1="690" y1="18" x2="690" y2="575"/><line x1="950" y1="18" x2="950" y2="575"/><line x1="1210" y1="18" x2="1210" y2="575"/></g><text x="158" y="26" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="14" text-anchor="start">목 10.15</text><text x="308" y="26" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="14" text-anchor="start">금</text><text x="398" y="26" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="14" text-anchor="start">토 10.17</text><text x="648" y="26" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="14" text-anchor="start">일</text><text x="698" y="26" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="14" text-anchor="start">월 10.19</text><text x="958" y="26" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="14" text-anchor="start">화 10.20</text><text x="1218" y="26" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="14" text-anchor="start">수 10.21</text><line x1="165" y1="58" x2="1585" y2="58" style="stroke:#0a0a0a" stroke-width="2.5"/><text x="16" y="63" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="16" text-anchor="start" font-weight="600">main</text><line x1="300" y1="238" x2="1440" y2="238" style="stroke:var(--p-ben,#ff3300)" stroke-width="2"/><text x="16" y="243" style="font-family:var(--font-mono);fill:var(--p-ben,#ff3300)" stroke="none" font-size="16" text-anchor="start" font-weight="600">benjohnbill</text><line x1="300" y1="340" x2="1565" y2="340" style="stroke:#0a0a0a" stroke-width="5"/><text x="16" y="345" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="16" text-anchor="start" font-weight="600">develop</text><line x1="300" y1="442" x2="1500" y2="442" style="stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="16" y="447" style="font-family:var(--font-mono);fill:var(--p-nuri,#0e7c6b)" stroke="none" font-size="16" text-anchor="start" font-weight="600">nuri</text><line x1="300" y1="540" x2="1532" y2="540" style="stroke:var(--p-jsy,#2f5bd3)" stroke-width="2"/><text x="16" y="545" style="font-family:var(--font-mono);fill:var(--p-jsy,#2f5bd3)" stroke="none" font-size="16" text-anchor="start" font-weight="600">JSY-*</text><circle cx="175" cy="58" r="6" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="175" y="42" style="fill:#6b6b6b" stroke="none" font-size="13" text-anchor="middle">P1 baseline</text><path d="M190 58 C200 100 205 100 215 100 L245 100 C255 100 260 100 268 67" stroke="#0a0a0a" stroke-width="2" marker-end="url(#gg-ink)"/><circle cx="270" cy="58" r="7" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="230" y="122" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle" font-weight="600">#104 컨벤션</text><line x1="292" y1="58" x2="292" y2="540" stroke="#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5"/><circle cx="292" cy="238" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/><circle cx="292" cy="442" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/><circle cx="292" cy="540" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/><circle cx="292" cy="340" r="5" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="300" y="368" style="fill:#6b6b6b" stroke="none" font-size="13" text-anchor="start">같은 main에서 출발</text><g data-step="1"><rect x="340" y="430" width="112" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="396.0" y="422" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">args</text><rect x="458" y="430" width="117" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="516.5" y="422" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">write/exit</text><rect x="470" y="226" width="102" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-ben,#ff3300)" stroke-width="2"/><text x="521.0" y="218" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">args · write/exit</text><rect x="470" y="528" width="102" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-jsy,#2f5bd3)" stroke-width="2"/><text x="521.0" y="520" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">args</text></g><g data-step="2"><rect x="400" y="70" width="350" height="112" rx="4" style="fill:#ffffff;stroke:#0a0a0a" stroke-width="2"/><line x1="628" y1="182" x2="628" y2="296" stroke="#6b6b6b" stroke-width="1.5" stroke-dasharray="3 4"/><text x="414" y="96" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="start" font-weight="700">#105 선택 기준 · AI 평가</text><text x="414" y="120" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="start"><tspan style="fill:#ff3300" font-weight="700">①</tspan> 컨벤션 충실도   <tspan style="fill:#ff3300" font-weight="700">②</tspan> 안정성</text><text x="414" y="144" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="start"><tspan style="fill:#ff3300" font-weight="700">③</tspan> 복잡도   <tspan style="fill:#ff3300" font-weight="700">④</tspan> 가독성</text><text x="414" y="168" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start" font-weight="600">→ args ← JSY · write/exit ← nuri</text><rect x="470" y="226" width="102" height="24" rx="12" fill="#ffffff" fill-opacity=".75" stroke="#6b6b6b" stroke-width="2" stroke-dasharray="4 4"/><line x1="478" y1="238" x2="564" y2="238" stroke="#6b6b6b" stroke-width="2"/><line x1="462.0" y1="213" x2="580.0" y2="213" stroke="#0a0a0a" stroke-width="2"/><text x="521" y="270" style="fill:var(--p-ben,#ff3300)" stroke="none" font-size="13" text-anchor="middle">t->name 한 줄만 남음</text><rect x="340" y="430" width="112" height="24" rx="12" fill="#ffffff" fill-opacity=".75" stroke="#6b6b6b" stroke-width="2" stroke-dasharray="4 4"/><line x1="348" y1="442" x2="444" y2="442" stroke="#6b6b6b" stroke-width="2"/><line x1="380.0" y1="417" x2="412.0" y2="417" stroke="#0a0a0a" stroke-width="2"/><rect x="458" y="430" width="117" height="24" rx="12" style="fill:#e2f2ef;stroke:var(--p-nuri,#0e7c6b)" stroke-width="3.5"/><rect x="470" y="528" width="102" height="24" rx="12" style="fill:#e6ecfb;stroke:var(--p-jsy,#2f5bd3)" stroke-width="3.5"/><path d="M572 238 C572 284.0 628 284.0 628 330" style="stroke:#6b6b6b" stroke-width="1.6" marker-end="url(#gg-mut)"/><path d="M575 442 C575 396.0 624 396.0 624 350" style="stroke:var(--p-nuri,#0e7c6b)" stroke-width="2.8" marker-end="url(#gg-nuri)"/><path d="M572 540 C572 445.0 632 445.0 632 350" style="stroke:var(--p-jsy,#2f5bd3)" stroke-width="2.8" marker-end="url(#gg-jsy)"/><rect x="620" y="332" width="16" height="16" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2"/><text x="614" y="328" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="end" font-weight="600">#105</text><path d="M636 340 C636 384.0 700 384.0 700 428" style="stroke:#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/></g><g data-step="3"><path d="M700 340 C708 292 712 292 720 292 L735 292 C743 292 746 292 750 330" stroke="#0a0a0a" stroke-width="2" marker-end="url(#gg-ink)"/><circle cx="752" cy="340" r="7" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="725" y="283" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle" font-weight="600">#106·107</text><text x="725" y="266" style="fill:#6b6b6b" stroke="none" font-size="13" text-anchor="middle">make ptest</text><rect x="700" y="226" width="80" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-ben,#ff3300)" stroke-width="2"/><text x="740.0" y="218" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">wait</text><rect x="786" y="226" width="80" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-ben,#ff3300)" stroke-width="2"/><text x="826.0" y="218" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">exec</text><rect x="706" y="430" width="80" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="746.0" y="422" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">wait</text><rect x="792" y="430" width="86" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="835.0" y="422" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">fork</text><rect x="780" y="528" width="46" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-jsy,#2f5bd3)" stroke-width="2"/><text x="803.0" y="520" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle">wait</text><rect x="832" y="528" width="46" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-jsy,#2f5bd3)" stroke-width="2"/><text x="855.0" y="520" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle">exec</text><path d="M758 340 C758 433.0 780 433.0 780 526" style="stroke:#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/></g><g data-step="4"><rect x="700" y="226" width="80" height="24" rx="12" fill="#ffffff" fill-opacity=".75" stroke="#6b6b6b" stroke-width="2" stroke-dasharray="4 4"/><line x1="708" y1="238" x2="772" y2="238" stroke="#6b6b6b" stroke-width="2"/><line x1="723.0" y1="213" x2="757.0" y2="213" stroke="#0a0a0a" stroke-width="2"/><rect x="786" y="226" width="80" height="24" rx="12" fill="#ffffff" fill-opacity=".75" stroke="#6b6b6b" stroke-width="2" stroke-dasharray="4 4"/><line x1="794" y1="238" x2="858" y2="238" stroke="#6b6b6b" stroke-width="2"/><line x1="809.0" y1="213" x2="843.0" y2="213" stroke="#0a0a0a" stroke-width="2"/><rect x="706" y="430" width="80" height="24" rx="12" style="fill:#e2f2ef;stroke:var(--p-nuri,#0e7c6b)" stroke-width="3.5"/><rect x="792" y="430" width="86" height="24" rx="12" style="fill:#e2f2ef;stroke:var(--p-nuri,#0e7c6b)" stroke-width="3.5"/><rect x="780" y="528" width="46" height="24" rx="12" fill="#ffffff" fill-opacity=".75" stroke="#6b6b6b" stroke-width="2" stroke-dasharray="4 4"/><line x1="788" y1="540" x2="818" y2="540" stroke="#6b6b6b" stroke-width="2"/><line x1="788.0" y1="515" x2="818.0" y2="515" stroke="#0a0a0a" stroke-width="2"/><rect x="832" y="528" width="46" height="24" rx="12" style="fill:#e6ecfb;stroke:var(--p-jsy,#2f5bd3)" stroke-width="3.5"/><path d="M866 238 C866 284.0 922 284.0 922 330" style="stroke:#6b6b6b" stroke-width="1.6" marker-end="url(#gg-mut)"/><path d="M878 442 C878 396.0 922 396.0 922 350" style="stroke:var(--p-nuri,#0e7c6b)" stroke-width="2.8" marker-end="url(#gg-nuri)"/><path d="M878 540 C878 445.0 928 445.0 928 350" style="stroke:var(--p-jsy,#2f5bd3)" stroke-width="2.8" marker-end="url(#gg-jsy)"/><rect x="780" y="70" width="356" height="112" rx="4" style="fill:#ffffff;stroke:#0a0a0a" stroke-width="2"/><line x1="925" y1="182" x2="925" y2="296" stroke="#6b6b6b" stroke-width="1.5" stroke-dasharray="3 4"/><text x="794" y="96" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="start" font-weight="700">#108 선택 기준 · 마감 + 호환성</text><text x="794" y="120" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="start"><tspan style="fill:#ff3300" font-weight="700">①</tspan> 월 21시까지 동작하는 것</text><text x="794" y="144" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="start"><tspan style="fill:#ff3300" font-weight="700">②</tspan> 서로 맞물림: fork·wait가 child_status 공유</text><text x="794" y="168" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start" font-weight="600">→ fork·wait ← nuri · exec ← JSY</text><rect x="917" y="332" width="16" height="16" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2"/><text x="911" y="328" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="end" font-weight="600">#108</text><circle cx="950" cy="340" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/></g><g data-step="5"><path d="M932 340 C932 384.0 965 384.0 965 428" style="stroke:#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/><path d="M952 340 C952 296.0 980 296.0 980 252" style="stroke:#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/><rect x="980" y="226" width="100" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-ben,#ff3300)" stroke-width="2"/><text x="1030.0" y="218" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">page fault</text><rect x="965" y="430" width="120" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="1025.0" y="422" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">fd 기반</text><path d="M1085 442 C1085 396.0 1112 396.0 1112 350" style="stroke:#0a0a0a" stroke-width="2.2" marker-end="url(#gg-ink)"/><rect x="1104" y="332" width="16" height="16" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2"/><text x="1098" y="366" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="end" font-weight="600">#110</text><text x="1098" y="384" style="fill:#6b6b6b" stroke="none" font-size="13" text-anchor="end">이름을 컨벤션에</text><circle cx="1132" cy="340" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/><path d="M1118 340 C1118 384.0 1145 384.0 1145 428" style="stroke:#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/><path d="M1136 340 C1136 296.0 1152 296.0 1152 252" style="stroke:#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/><rect x="1145" y="430" width="113" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="1201.5" y="422" style="fill:#0a0a0a" stroke="none" font-size="15" text-anchor="middle">open·close·read</text></g><g data-step="6"><path d="M1258 442 C1258 396.0 1268 396.0 1268 350" style="stroke:#0a0a0a" stroke-width="2.2" marker-end="url(#gg-ink)"/><circle cx="1268" cy="340" r="7" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="1254" y="328" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="end" font-weight="600">#111</text><path d="M1272 340 C1272 296.0 1290 296.0 1290 252" style="stroke:#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/><rect x="1290" y="226" width="70" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-ben,#ff3300)" stroke-width="2"/><text x="1325.0" y="218" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle">fd 정리·tell</text><rect x="1285" y="430" width="70" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="1320.0" y="422" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle">seek</text><circle cx="1318" cy="340" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/><path d="M1360 238 C1360 284.0 1372 284.0 1372 330" style="stroke:#0a0a0a" stroke-width="2.2" marker-end="url(#gg-ink)"/><circle cx="1372" cy="340" r="7" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="1358" y="328" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="end" font-weight="600">#113</text><path d="M1355 442 C1355 396.0 1406 396.0 1406 350" style="stroke:#0a0a0a" stroke-width="2.2" marker-end="url(#gg-ink)"/><circle cx="1406" cy="340" r="7" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="1392" y="366" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="end" font-weight="600">#112</text><path d="M1436 238 C1436 284.0 1440 284.0 1440 330" style="stroke:#0a0a0a" stroke-width="2.2" marker-end="url(#gg-ink)"/><circle cx="1440" cy="340" r="7" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="1454" y="328" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="start" font-weight="600">#114</text><path d="M1444 340 C1444 433.0 1470 433.0 1470 526" style="stroke:#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/><rect x="1450" y="430" width="50" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-nuri,#0e7c6b)" stroke-width="2"/><text x="1475.0" y="422" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle">create</text><path d="M1500 442 C1500 396.0 1488 396.0 1488 350" style="stroke:#0a0a0a" stroke-width="2.2" marker-end="url(#gg-ink)"/><circle cx="1488" cy="340" r="7" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="1502" y="366" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="start" font-weight="600">#116</text><rect x="1470" y="528" width="62" height="24" rx="12" style="fill:#f7f7f5;stroke:var(--p-jsy,#2f5bd3)" stroke-width="2"/><text x="1501.0" y="520" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle">remove</text><circle cx="1516" cy="340" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/><circle cx="1531" cy="340" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/><path d="M1532 540 C1532 445.0 1550 445.0 1550 350" style="stroke:#0a0a0a" stroke-width="2.2" marker-end="url(#gg-ink)"/><circle cx="1550" cy="340" r="6" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><path d="M1565 340 C1565 204.0 1575 204.0 1575 68" style="stroke:#0a0a0a" stroke-width="2.6" marker-end="url(#gg-ink)"/><circle cx="1575" cy="58" r="8" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="1560" y="42" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="15" text-anchor="end" font-weight="600">#118 → main</text><text x="1560" y="24" style="fill:#6b6b6b" stroke="none" font-size="13" text-anchor="end">수 20:13</text></g><g data-step="7"><text x="16" y="153" style="font-family:var(--font-mono);fill:var(--p-ben,#ff3300)" stroke="none" font-size="16" text-anchor="start" font-weight="600">rewrite/fwe</text><path d="M1152 238 C1152 168 1160 148 1172 148" style="stroke:var(--p-ben,#ff3300)" stroke-width="2.2"/><rect x="1172" y="136" width="80" height="24" rx="12" style="fill:#ffffff;stroke:var(--p-ben,#ff3300)" stroke-width="2.2" stroke-dasharray="7 5"/><text x="1264" y="153" style="fill:var(--p-ben,#ff3300)" stroke="none" font-size="14" text-anchor="start">빈칸 다시 짜기 → fork에서 멈춤</text><text x="1264" y="172" style="fill:#6b6b6b" stroke="none" font-size="13" text-anchor="start">로컬 전용 · develop에 합치지 않음</text></g><line x1="160" y1="577" x2="1585" y2="577" stroke="#ebebeb" stroke-width="22" stroke-linecap="round"/><text x="16" y="582" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="16" text-anchor="start" font-weight="600">통과 수</text><text x="270" y="582" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle" font-weight="600">18/95</text><g data-step="2"><text x="628" y="582" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle" font-weight="600">args 6/6</text></g><g data-step="4"><text x="925" y="582" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle" font-weight="600">46/95</text></g><g data-step="5"><text x="1112" y="582" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle" font-weight="600">50/95</text></g><g data-step="6"><text x="1318" y="582" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle" font-weight="600">69/95</text><text x="1372" y="582" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle" font-weight="600">73/96</text><text x="1488" y="582" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="middle" font-weight="600">94/96</text><text x="1575" y="582" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="15" text-anchor="middle" font-weight="700">96/96</text><text x="1575" y="604" style="fill:#6b6b6b" stroke="none" font-size="13" text-anchor="end">make ptest</text></g><path d="M160 648 L160 630" stroke="#0a0a0a" stroke-width="2.2" marker-end="url(#gg-ink)"/><text x="172" y="645" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start">합침</text><path d="M230 630 L230 646" stroke="#6b6b6b" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#gg-mut)"/><text x="242" y="645" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start">develop 받아오기</text><rect x="382" y="632" width="16" height="16" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2"/><text x="404" y="645" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start">integrate 브랜치에서 골라 합침</text><circle cx="630" cy="640" r="7" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="2.5"/><text x="644" y="645" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start">개인 브랜치 PR</text><circle cx="770" cy="640" r="5.5" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/><text x="784" y="645" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start">develop 직접 커밋</text><rect x="920" y="630" width="40" height="20" rx="10" style="fill:#e2f2ef;stroke:var(--p-nuri,#0e7c6b)" stroke-width="3.5"/><text x="970" y="645" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start">합칠 때 채택</text><rect x="1080" y="630" width="40" height="20" rx="10" fill="#ffffff" stroke="#6b6b6b" stroke-width="2" stroke-dasharray="4 4"/><line x1="1086" y1="640" x2="1114" y2="640" stroke="#6b6b6b" stroke-width="2"/><text x="1130" y="645" style="fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start">빠짐</text></svg></figure>
+    </div>
+    <div class="foot"><span>github.com/benjohnbill/pintos-userprog · PR #104 – #118</span><span>목 – 수</span></div>
+    <aside class="notes" data-sec="55">
+        <p>저희 팀 저장소의 일주일을 git graph 하나로 그렸습니다. 가운데가 develop이고, 셋 다 같은 main에서 출발해서 각자 브랜치에서 짰습니다.</p>
+        <p>맨 아래 줄은 합칠 때마다 잰 테스트 통과 수입니다.</p>
+        <p><span class="st">▸1</span>토요일까지 셋이 각자 args와 write, exit을 짰습니다.</p>
+        <p><span class="st">▸2</span>토요일 밤 첫 merge에서는 AI에게 컨벤션 충실도, 안정성, 복잡도, 가독성으로 평가하게 해서 골랐습니다. args는 승영님 것, write와 exit은 누리님 것이 들어갔습니다.</p>
+        <p><span class="st">▸3</span>월요일에는 테스트 도구를 먼저 넣고, fork, wait, exec는 셋이 각자 짰습니다.</p>
+        <p><span class="st">▸4</span>월요일 merge는 기준이 달랐습니다. 저녁 9시까지 동작하는 것, 그리고 서로 맞물리는 것이었습니다. wait와 fork는 nuri님 것, exec는 승영님 것이 들어갔고, 제 wait와 exec는 빠졌습니다.</p>
+        <p><span class="st">▸5</span>합칠 때마다 각자 develop을 받아가서 그 위에서 다음 작업을 시작했습니다.</p>
+        <p><span class="st">▸6</span>수요일에는 integrate 없이 기능마다 develop으로 바로 PR을 올렸고, 저녁에 96개를 모두 통과해 main으로 합쳤습니다. 이 숫자는 전부 같은 명령 하나, make ptest로 쟀습니다.</p>
+        <p><span class="st">▸7</span>그리고 이 빨간 가지가 제가 혼자 판 빈칸 다시 짜기 브랜치입니다. 마지막에 다시 말씀드리겠습니다.</p>
+    </aside>
+</section>
+
+<!-- map-slide:start (generated by map-slides.py; edit the script, not this block) -->
+<section class="slide mapslide" id="m5">
+    <div class="head"><span>지도 · 다음</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2><em>Convention</em> → <code>make ptest</code>와 보드</h2>
+        <figure class="board"><svg viewBox="0 0 1600 745" role="img" aria-label="첫날 칠판 지도: 회의와 PR의 단위는 작업이 정하고, 작업은 공통과 분할로 나뉜다. AI를 통한 시스템 콜 단위 분배로 공통에서 분할로, 로직·변수 공유가 많으면 분할에서 공통으로 옮긴다. 공통인 fork·wait·exec의 선행 요건에서 첫날 할 일이 나왔고, 컨벤션에서 CONVENTION.md와 make ptest가 나왔다." fill="none" stroke="currentColor" stroke-width="2.5"><defs><marker id="b-ah-m5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0a0a0a" stroke="none"/></marker><marker id="b-ah-acc-m5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ff3300" stroke="none"/></marker></defs><g class="rg"><rect x="50" y="115" width="120" height="52" rx="4"/><rect x="50" y="195" width="120" height="52" rx="4"/><path d="M182 120 Q205 120 205 140 L205 170 Q205 181 218 181 Q205 181 205 192 L205 222 Q205 242 182 242"/><line x1="222" y1="181" x2="258" y2="181" marker-end="url(#b-ah-m5)"/><ellipse cx="322" cy="181" rx="62" ry="34"/><line x1="370" y1="160" x2="532" y2="112" marker-end="url(#b-ah-m5)"/><line x1="370" y1="202" x2="532" y2="316" marker-end="url(#b-ah-m5)"/><g fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle"><text x="110" y="150">회의</text><text x="110" y="230">PR</text><text x="322" y="190">작업</text></g><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="110" y="95">팀 활동의 단위</text><text x="322" y="245">단위를 정한다</text></g></g><g class="rg"><ellipse cx="600" cy="100" rx="66" ry="36"/><text x="600" y="109" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">공통</text></g><g class="rg"><ellipse cx="600" cy="330" rx="66" ry="36"/><text x="600" y="339" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">분할</text></g><g class="rg"><line x1="636" y1="137" x2="636" y2="290" stroke="#ff3300" marker-end="url(#b-ah-acc-m5)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="178" font-weight="700" fill="#ff3300">↓ 공통 → 분할</text><text x="686" y="204">AI를 통한</text><text x="686" y="228">시스템 콜 단위 일 분배</text></g></g><g class="rg"><line x1="564" y1="293" x2="564" y2="140" stroke="#ff3300" marker-end="url(#b-ah-acc-m5)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="268" font-weight="700" fill="#ff3300">↑ 분할 → 공통</text><text x="686" y="294">로직·변수를 많이 공유하면</text><text x="686" y="318">다 짜 보고 리뷰</text></g></g><g class="rg"><line x1="668" y1="100" x2="996" y2="100" marker-end="url(#b-ah-m5)"/><rect x="1000" y="40" width="560" height="360" rx="4" fill="#f7f7f5"/><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="832" y="84">선행 요건</text><text x="832" y="128" style="font-family:var(--font-mono)" font-size="15">args · write/exit/wait 루프</text></g><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="88" font-size="26" font-weight="700">첫 날(10/15)에 할 일</text><text x="1030" y="140">1  Pintos Gitbook 읽기</text><text x="1030" y="188">2  Shell·userprog가 도는 방식</text><text x="1062" y="213" fill="#6b6b6b" font-size="16">args-passing 준비 · 각자 AI로 조사</text><text x="1030" y="260">3  System Call 조사</text></g><line x1="1030" y1="295" x2="1530" y2="295" stroke="#6b6b6b" stroke-width="1.5"/></g><g class="rg"><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="345" style="font-family:var(--font-mono)" font-size="24" font-weight="700">★ fork() wait() exec()</text><text x="1062" y="375" fill="#6b6b6b" font-size="16">이번 주 핵심 → 공통으로</text></g></g><g class="rg"><line x1="668" y1="345" x2="996" y2="345" stroke-dasharray="9 7" marker-end="url(#b-ah-m5)"/><text x="832" y="378" fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle">프로세스 syscall 이후</text></g><g class="rg hi"><rect x="50" y="470" width="190" height="52" rx="4"/><line x1="145" y1="522" x2="145" y2="566" marker-end="url(#b-ah-m5)"/><rect x="50" y="570" width="340" height="160" rx="4" fill="#f7f7f5"/><line x1="240" y1="496" x2="376" y2="496" marker-end="url(#b-ah-m5)"/><rect x="380" y="455" width="430" height="82" rx="4"/><g fill="#0a0a0a" stroke="none" font-size="20"><text x="145" y="505" font-size="24" font-weight="700" text-anchor="middle">Convention</text><text x="70" y="606" fill="#6b6b6b" font-size="17">같이 볼 것</text><text x="70" y="643">✓ 이번 주 목표 한 줄</text><text x="70" y="679">✓ 날짜별 현황 (test)</text><text x="70" y="715">✓ 공통/분할 방법론</text><text x="595" y="492" font-weight="700" text-anchor="middle">오픈소스 규약 → formatter + linter</text><text x="595" y="520" fill="#6b6b6b" font-size="16" text-anchor="middle">함수·모듈·API·변수 이름과 모양 통일</text></g></g><g class="rg"><line x1="810" y1="480" x2="916" y2="471" marker-end="url(#b-ah-m5)"/><rect x="920" y="445" width="260" height="52" rx="4"/><g stroke="none" font-size="16" style="font-family:var(--font-mono)"><text x="1050" y="478" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle">CONVENTION.md</text><text x="1200" y="466" fill="#6b6b6b">.clang-format · .clang-tidy</text><text x="1200" y="490" fill="#6b6b6b">PR #104 · 10.15 merge</text></g></g><g class="rg hi"><line x1="810" y1="512" x2="916" y2="597" marker-end="url(#b-ah-m5)"/><rect x="920" y="575" width="260" height="52" rx="4"/><g stroke="none" font-size="16"><text x="1050" y="608" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle" style="font-family:var(--font-mono)">make ptest</text><text x="1200" y="596" fill="#6b6b6b">같은 테스트 명령</text><text x="1200" y="620" fill="#6b6b6b">결과는 보드로</text></g></g></svg></figure>
+    </div>
+    <div class="foot"><span>첫날 칠판 지도</span><span>토 – 월 · 10.17 – 10.19</span></div>
+    <aside class="notes" data-sec="3"><p>다음은 컨벤션에서 나온 테스트 명령입니다.</p></aside>
+</section>
+<!-- map-slide:end -->
+
+<!-- ============================================================
+     05 · 토~월: test tooling and the live board
+     ============================================================ -->
+<section class="slide" id="s5">
+    <div class="head"><span>토 – 월 · 10.17 – 10.19</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2>팀 전용 테스트&nbsp;<em>도구:&nbsp;</em><code>make ptest</code>:&nbsp;<br>테스트 결과는 분업표로 자동 반영.</h2>
+        <div class="replay">
+            <figure class="board" data-step="1">
+                <div class="pstage real" id="pstage">
+                    <div class="pboard" id="pboard" title="눌러서 다시 재생" data-evidence></div>
+                    <div class="preal" data-evidence>
+                        <img src="p2-team-workflow.assets/plan-page-criteria.png" alt="분업표 페이지 3. 나눈 기준: 각자 = fork·wait·exec, 분업 = 파일 syscall">
+                        <img src="p2-team-workflow.assets/plan-page-board.png" alt="실제 분업표: fork·wait·exec 21/21, fd 테이블과 파일 syscall 29/29">
+                    </div>
+                </div>
+                <div class="ptotal"><span id="pcap"></span><span><b id="pdone">0</b> / <span id="pall">0</span></span></div>
+            </figure>
+            <div class="pflow" data-step="2">
+                <div class="head2">각자 자기 브랜치에서</div>
+                <span class="who ben">benjohnbill</span><span class="br">benjohnbill</span><span class="to">→ <code>make ptest</code> → 내 블록 체크</span>
+                <span class="who nuri">Nuri</span><span class="br">nuri</span><span class="to">→ <code>make ptest</code> → 내 블록 체크</span>
+                <span class="who jsy">승영</span><span class="br">JSY-*</span><span class="to">→ <code>make ptest</code> → 내 블록 체크</span>
+                <div class="end">분업표 한 장을 셋이 같이 본다 → 누가 어디까지 됐는지 회의 없이 보인다</div>
+                <div class="who team" style="grid-column:1/-1">회색 = 여러 사람 코드가 함께 필요한 테스트</div>
+            </div>
+        </div>
+        <dl class="pknobs" data-step="3">
+            <div><dt>icount</dt><dd>QEMU가 실제 시간 대신 명령 수로 시간을 센다. 여러 개를 동시에 돌려도 결과가 흔들리지 않는다.</dd></div>
+            <div><dt>SHIFT</dt><dd>명령 하나 = 2<sup>SHIFT</sup> ns. 3–8로 바꿔 돌리며 경쟁 상태를 찾는다.</dd></div>
+            <div><dt>JOBS</dt><dd>코어 수만큼 QEMU를 동시에 띄운다 (<code>-j$(nproc)</code>).</dd></div>
+            <div><dt>TIMEOUT</dt><dd>테스트 하나의 제한 시간. 기본 5초, 느린 노트북은 10초.</dd></div>
+        </dl>
+    </div>
+    <div class="foot"><span>Makefile · scripts/plan-check.py · team-plan.html</span><span>토 – 월</span></div>
+    <aside class="notes" data-sec="30">
+        <p><span class="st">▸1</span>테스트를 계속 돌려야 하니 도구를 만들었습니다. 이게 실제로 쓰던 분업표 페이지입니다. 이제 수요일 코드로 make ptest를 한 번 돌렸을 때 이 페이지가 채워지는 모습을 재현해 보겠습니다. 칸 색은 그 테스트를 통과시킨 코드를 누가 짰는지입니다.</p>
+        <p><span class="st">▸2</span>평소에는 각자 자기 브랜치에서 make ptest를 돌리고, 결과가 자기 블록에 체크됩니다. 그래서 회의 없이도 누가 어디까지 됐는지 셋이 같은 화면으로 봤습니다.</p>
+        <p><span class="st">▸3</span>속도는 QEMU의 icount 모드와 코어 수만큼의 병렬 실행에서 나옵니다. SHIFT를 바꿔 돌리면 타이밍이 달라져서 경쟁 상태도 점검할 수 있습니다.</p>
+    </aside>
+</section>
+
+<!-- map-slide:start (generated by map-slides.py; edit the script, not this block) -->
+<section class="slide mapslide" id="m6">
+    <div class="head"><span>지도 · 다음</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2><em>Convention</em> → <code>CONVENTION.md</code> 세 구역</h2>
+        <figure class="board"><svg viewBox="0 0 1600 745" role="img" aria-label="첫날 칠판 지도: 회의와 PR의 단위는 작업이 정하고, 작업은 공통과 분할로 나뉜다. AI를 통한 시스템 콜 단위 분배로 공통에서 분할로, 로직·변수 공유가 많으면 분할에서 공통으로 옮긴다. 공통인 fork·wait·exec의 선행 요건에서 첫날 할 일이 나왔고, 컨벤션에서 CONVENTION.md와 make ptest가 나왔다." fill="none" stroke="currentColor" stroke-width="2.5"><defs><marker id="b-ah-m6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0a0a0a" stroke="none"/></marker><marker id="b-ah-acc-m6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ff3300" stroke="none"/></marker></defs><g class="rg"><rect x="50" y="115" width="120" height="52" rx="4"/><rect x="50" y="195" width="120" height="52" rx="4"/><path d="M182 120 Q205 120 205 140 L205 170 Q205 181 218 181 Q205 181 205 192 L205 222 Q205 242 182 242"/><line x1="222" y1="181" x2="258" y2="181" marker-end="url(#b-ah-m6)"/><ellipse cx="322" cy="181" rx="62" ry="34"/><line x1="370" y1="160" x2="532" y2="112" marker-end="url(#b-ah-m6)"/><line x1="370" y1="202" x2="532" y2="316" marker-end="url(#b-ah-m6)"/><g fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle"><text x="110" y="150">회의</text><text x="110" y="230">PR</text><text x="322" y="190">작업</text></g><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="110" y="95">팀 활동의 단위</text><text x="322" y="245">단위를 정한다</text></g></g><g class="rg"><ellipse cx="600" cy="100" rx="66" ry="36"/><text x="600" y="109" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">공통</text></g><g class="rg"><ellipse cx="600" cy="330" rx="66" ry="36"/><text x="600" y="339" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">분할</text></g><g class="rg"><line x1="636" y1="137" x2="636" y2="290" stroke="#ff3300" marker-end="url(#b-ah-acc-m6)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="178" font-weight="700" fill="#ff3300">↓ 공통 → 분할</text><text x="686" y="204">AI를 통한</text><text x="686" y="228">시스템 콜 단위 일 분배</text></g></g><g class="rg"><line x1="564" y1="293" x2="564" y2="140" stroke="#ff3300" marker-end="url(#b-ah-acc-m6)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="268" font-weight="700" fill="#ff3300">↑ 분할 → 공통</text><text x="686" y="294">로직·변수를 많이 공유하면</text><text x="686" y="318">다 짜 보고 리뷰</text></g></g><g class="rg"><line x1="668" y1="100" x2="996" y2="100" marker-end="url(#b-ah-m6)"/><rect x="1000" y="40" width="560" height="360" rx="4" fill="#f7f7f5"/><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="832" y="84">선행 요건</text><text x="832" y="128" style="font-family:var(--font-mono)" font-size="15">args · write/exit/wait 루프</text></g><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="88" font-size="26" font-weight="700">첫 날(10/15)에 할 일</text><text x="1030" y="140">1  Pintos Gitbook 읽기</text><text x="1030" y="188">2  Shell·userprog가 도는 방식</text><text x="1062" y="213" fill="#6b6b6b" font-size="16">args-passing 준비 · 각자 AI로 조사</text><text x="1030" y="260">3  System Call 조사</text></g><line x1="1030" y1="295" x2="1530" y2="295" stroke="#6b6b6b" stroke-width="1.5"/></g><g class="rg"><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="345" style="font-family:var(--font-mono)" font-size="24" font-weight="700">★ fork() wait() exec()</text><text x="1062" y="375" fill="#6b6b6b" font-size="16">이번 주 핵심 → 공통으로</text></g></g><g class="rg"><line x1="668" y1="345" x2="996" y2="345" stroke-dasharray="9 7" marker-end="url(#b-ah-m6)"/><text x="832" y="378" fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle">프로세스 syscall 이후</text></g><g class="rg hi"><rect x="50" y="470" width="190" height="52" rx="4"/><line x1="145" y1="522" x2="145" y2="566" marker-end="url(#b-ah-m6)"/><rect x="50" y="570" width="340" height="160" rx="4" fill="#f7f7f5"/><line x1="240" y1="496" x2="376" y2="496" marker-end="url(#b-ah-m6)"/><rect x="380" y="455" width="430" height="82" rx="4"/><g fill="#0a0a0a" stroke="none" font-size="20"><text x="145" y="505" font-size="24" font-weight="700" text-anchor="middle">Convention</text><text x="70" y="606" fill="#6b6b6b" font-size="17">같이 볼 것</text><text x="70" y="643">✓ 이번 주 목표 한 줄</text><text x="70" y="679">✓ 날짜별 현황 (test)</text><text x="70" y="715">✓ 공통/분할 방법론</text><text x="595" y="492" font-weight="700" text-anchor="middle">오픈소스 규약 → formatter + linter</text><text x="595" y="520" fill="#6b6b6b" font-size="16" text-anchor="middle">함수·모듈·API·변수 이름과 모양 통일</text></g></g><g class="rg hi"><line x1="810" y1="480" x2="916" y2="471" marker-end="url(#b-ah-m6)"/><rect x="920" y="445" width="260" height="52" rx="4"/><g stroke="none" font-size="16" style="font-family:var(--font-mono)"><text x="1050" y="478" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle">CONVENTION.md</text><text x="1200" y="466" fill="#6b6b6b">.clang-format · .clang-tidy</text><text x="1200" y="490" fill="#6b6b6b">PR #104 · 10.15 merge</text></g></g><g class="rg"><line x1="810" y1="512" x2="916" y2="597" marker-end="url(#b-ah-m6)"/><rect x="920" y="575" width="260" height="52" rx="4"/><g stroke="none" font-size="16"><text x="1050" y="608" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle" style="font-family:var(--font-mono)">make ptest</text><text x="1200" y="596" fill="#6b6b6b">같은 테스트 명령</text><text x="1200" y="620" fill="#6b6b6b">결과는 보드로</text></g></g></svg></figure>
+    </div>
+    <div class="foot"><span>첫날 칠판 지도</span><span>Convention · CONVENTION.md</span></div>
+    <aside class="notes" data-sec="3"><p>다음은 컨벤션 문서 자체입니다.</p></aside>
+</section>
+<!-- map-slide:end -->
+
+<!-- ============================================================
+     06 · CONVENTION.md in three zones (generated by convgraph.py; edit the script, not this block)
+     ============================================================ -->
+<section class="slide" id="s6">
+    <div class="head"><span>Convention · CONVENTION.md</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2>A : 자동저장 | B : 수동 체크 | C : 직접 체크</h2>
+        <figure class="board"><svg viewBox="0 0 1600 590" role="img" aria-label="CONVENTION.md의 세 구역. A 모양은 .clang-format이 저장할 때 고친다. B 이름은 .clang-tidy가 에디터에 밑줄로 알린다. make format은 A를, make lint는 A와 B를 검사한다. C 이름 짓는 규칙은 도구가 못 잡아서 사람이 합의하고 merge 때 AI가 판단했다. PR #110에서 file_descriptor는 fd_entry로(C4), process_get_file은 process_find_file로(C2) 바뀌었다." fill="none" stroke="currentColor"><g data-step="1"><rect x="36" y="40" width="488" height="400" rx="4" style="fill:#f7f7f5;stroke:#0a0a0a" stroke-width="2.5"/><circle cx="82" cy="90" r="26" style="fill:#ff3300" stroke="none"/><text x="82" y="101" style="fill:#ffffff" stroke="none" font-size="30" text-anchor="middle" font-weight="700">A</text><text x="124" y="88" style="fill:#0a0a0a" stroke="none" font-size="28" text-anchor="start" font-weight="700">모양</text><text x="124" y="114" style="fill:#6b6b6b" stroke="none" font-size="15" text-anchor="start">.clang-format · 저장하면 고쳐짐</text><line x1="60" y1="136" x2="500" y2="136" stroke="#ebebeb" stroke-width="2"/><text x="60" y="168" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">A1</text><text x="102" y="168" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">들여쓰기는 스페이스 4칸</text><text x="60" y="204" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">A2</text><text x="102" y="204" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">중괄호: 함수만 다음 줄, 나머지는 같은 줄</text><text x="60" y="240" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">A3</text><text x="102" y="240" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">본문이 한 줄이어도 중괄호</text><text x="60" y="276" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">A4</text><text x="102" y="276" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500"><tspan style="font-family:var(--font-mono)">if (</tspan>는 띄우고 <tspan style="font-family:var(--font-mono)">foo(</tspan>는 붙인다</text><text x="60" y="312" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">A5</text><text x="102" y="312" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500"><tspan style="font-family:var(--font-mono)">case</tspan>는 <tspan style="font-family:var(--font-mono)">switch</tspan>와 같은 깊이</text><text x="60" y="348" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">A6</text><text x="102" y="348" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">한 줄은 80자까지</text></g><g data-step="2"><rect x="556" y="40" width="488" height="400" rx="4" style="fill:#f7f7f5;stroke:#0a0a0a" stroke-width="2.5"/><circle cx="602" cy="90" r="26" style="fill:#ff3300" stroke="none"/><text x="602" y="101" style="fill:#ffffff" stroke="none" font-size="30" text-anchor="middle" font-weight="700">B</text><text x="644" y="88" style="fill:#0a0a0a" stroke="none" font-size="28" text-anchor="start" font-weight="700">이름</text><text x="644" y="114" style="fill:#6b6b6b" stroke="none" font-size="15" text-anchor="start">.clang-tidy · 에디터 밑줄</text><line x1="580" y1="136" x2="1020" y2="136" stroke="#ebebeb" stroke-width="2"/><text x="580" y="168" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">B1</text><text x="622" y="168" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">함수·변수·구조체는 snake_case</text><text x="580" y="204" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">B2</text><text x="622" y="204" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">상수 매크로·enum 값은 대문자</text></g><g data-step="3"><rect x="1076" y="40" width="488" height="400" rx="4" style="fill:#ffffff;stroke:#0a0a0a" stroke-width="2.5"/><circle cx="1122" cy="90" r="26" style="fill:#ff3300" stroke="none"/><text x="1122" y="101" style="fill:#ffffff" stroke="none" font-size="30" text-anchor="middle" font-weight="700">C</text><text x="1164" y="88" style="fill:#0a0a0a" stroke="none" font-size="28" text-anchor="start" font-weight="700">이름 짓는 규칙</text><text x="1164" y="114" style="fill:#6b6b6b" stroke="none" font-size="15" text-anchor="start">도구 밖 · 합의하고 merge 때 판단</text><line x1="1100" y1="136" x2="1540" y2="136" stroke="#ebebeb" stroke-width="2"/><text x="1100" y="168" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">C1</text><text x="1142" y="168" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">남이 부르는 함수: 모듈_동사[_목적어]</text><text x="1100" y="204" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">C2</text><text x="1142" y="204" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">동사 뜻 고정: init · create · find …</text><text x="1100" y="240" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">C3</text><text x="1142" y="240" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">변수는 명사, 범위가 넓으면 길게</text><text x="1100" y="276" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">C4</text><text x="1142" y="276" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">같은 개념은 모든 파일에서 같은 이름</text><text x="1100" y="312" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">C5</text><text x="1142" y="312" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">구조체에 typedef 안 붙임</text><text x="1100" y="348" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">C6</text><text x="1142" y="348" style="fill:#0a0a0a" stroke="none" font-size="18" text-anchor="start" font-weight="500">숫자 상수에는 이름을 붙인다</text></g><g data-step="2"><text x="580" y="270" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="17" text-anchor="start">int</text><text x="622" y="270" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="17" text-anchor="start">FdCount;</text><polyline points="622 278 628 281 634 278 640 281 646 278 652 281 658 278 664 281 670 278 676 281 682 278 688 281 694 278 700 281" style="stroke:#d9a400" stroke-width="2"/><text x="720" y="270" style="fill:#d9a400" stroke="none" font-size="15" text-anchor="start" font-weight="600">⚠ lower_case</text><text x="580" y="310" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">✓</text><text x="606" y="310" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="17" text-anchor="start" font-weight="600">int fd_count;</text><text x="580" y="354" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="17" text-anchor="start">✗</text><text x="606" y="354" style="font-family:var(--font-mono);fill:#6b6b6b" stroke="none" font-size="17" text-anchor="start">#define maxFd 128</text><line x1="606" y1="348.56" x2="779.4" y2="348.56" stroke="#6b6b6b" stroke-width="1.6"/><text x="580" y="394" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="17" text-anchor="start" font-weight="700">✓</text><text x="606" y="394" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="17" text-anchor="start" font-weight="600">#define MAX_FD 128</text></g><g data-step="3"><line x1="1100" y1="360" x2="1540" y2="360" stroke="#ebebeb" stroke-width="2"/><text x="1100" y="386" style="fill:#6b6b6b" stroke="none" font-size="15" text-anchor="start">#110 merge:</text><text x="1192" y="386" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start" font-weight="600">file_descriptor → fd_entry</text><text x="1540" y="386" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="15" text-anchor="end" font-weight="700">C4</text><text x="1192" y="410" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="14" text-anchor="start" font-weight="600">process_get_file → process_find_file</text><text x="1540" y="410" style="font-family:var(--font-mono);fill:#ff3300" stroke="none" font-size="15" text-anchor="end" font-weight="700">C2</text></g><g data-step="1"><path d="M46 456 L46 470 L514 470 L514 456" stroke="#0a0a0a" stroke-width="2"/><text x="280.0" y="500" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="19" text-anchor="middle" font-weight="700">make format</text></g><g data-step="2"><path d="M46 516 L46 530 L1034 530 L1034 516" stroke="#0a0a0a" stroke-width="2"/><text x="540.0" y="560" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="19" text-anchor="middle" font-weight="700">make lint  (A + B 검사)</text></g><g data-step="3"><path d="M1086 456 L1086 470 L1554 470 L1554 456" stroke="#0a0a0a" stroke-width="2"/><text x="1320.0" y="500" style="font-family:var(--font-mono);fill:#0a0a0a" stroke="none" font-size="19" text-anchor="middle" font-weight="700">리뷰 · merge</text></g></svg></figure>
+    </div>
+    <div class="foot"><span>CONVENTION.md · .clang-format · .clang-tidy · PR #110</span><span>목 – 수</span></div>
+    <aside class="notes" data-sec="25">
+        <p>CONVENTION.md는 세 구역으로 나뉩니다. 오른쪽으로 갈수록 도구가 해 주는 몫이 줄어듭니다.</p>
+        <p><span class="st">▸1</span>A는 모양입니다. 들여쓰기, 중괄호, 공백은 저장하는 순간 clang-format이 고칩니다. make format은 이걸 파일 전체에 적용합니다.</p>
+        <p><span class="st">▸2</span>B는 이름입니다. snake_case와 대문자 상수는 clang-tidy가 에디터에 밑줄로 알려 주고, make lint는 A와 B를 함께 검사합니다.</p>
+        <p><span class="st">▸3</span>C는 이름 짓는 규칙입니다. 이건 도구가 못 잡아서 사람끼리 합의했고, merge할 때는 AI가 이 규칙으로 판단했습니다. 화요일 merge에서 file_descriptor가 fd_entry로, process_get_file이 process_find_file로 바뀐 게 그 예입니다.</p>
+    </aside>
+</section>
+
+<!-- map-slide:start (generated by map-slides.py; edit the script, not this block) -->
+<section class="slide mapslide" id="m70">
+    <div class="head"><span>지도 · 다음</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2><em>분할</em> → 기능 단위로 합치기</h2>
+        <figure class="board"><svg viewBox="0 0 1600 745" role="img" aria-label="첫날 칠판 지도: 회의와 PR의 단위는 작업이 정하고, 작업은 공통과 분할로 나뉜다. AI를 통한 시스템 콜 단위 분배로 공통에서 분할로, 로직·변수 공유가 많으면 분할에서 공통으로 옮긴다. 공통인 fork·wait·exec의 선행 요건에서 첫날 할 일이 나왔고, 컨벤션에서 CONVENTION.md와 make ptest가 나왔다." fill="none" stroke="currentColor" stroke-width="2.5"><defs><marker id="b-ah-m70" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0a0a0a" stroke="none"/></marker><marker id="b-ah-acc-m70" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ff3300" stroke="none"/></marker></defs><g class="rg"><rect x="50" y="115" width="120" height="52" rx="4"/><rect x="50" y="195" width="120" height="52" rx="4"/><path d="M182 120 Q205 120 205 140 L205 170 Q205 181 218 181 Q205 181 205 192 L205 222 Q205 242 182 242"/><line x1="222" y1="181" x2="258" y2="181" marker-end="url(#b-ah-m70)"/><ellipse cx="322" cy="181" rx="62" ry="34"/><line x1="370" y1="160" x2="532" y2="112" marker-end="url(#b-ah-m70)"/><line x1="370" y1="202" x2="532" y2="316" marker-end="url(#b-ah-m70)"/><g fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle"><text x="110" y="150">회의</text><text x="110" y="230">PR</text><text x="322" y="190">작업</text></g><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="110" y="95">팀 활동의 단위</text><text x="322" y="245">단위를 정한다</text></g></g><g class="rg"><ellipse cx="600" cy="100" rx="66" ry="36"/><text x="600" y="109" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">공통</text></g><g class="rg hi"><ellipse cx="600" cy="330" rx="66" ry="36"/><text x="600" y="339" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">분할</text></g><g class="rg"><line x1="636" y1="137" x2="636" y2="290" stroke="#ff3300" marker-end="url(#b-ah-acc-m70)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="178" font-weight="700" fill="#ff3300">↓ 공통 → 분할</text><text x="686" y="204">AI를 통한</text><text x="686" y="228">시스템 콜 단위 일 분배</text></g></g><g class="rg"><line x1="564" y1="293" x2="564" y2="140" stroke="#ff3300" marker-end="url(#b-ah-acc-m70)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="268" font-weight="700" fill="#ff3300">↑ 분할 → 공통</text><text x="686" y="294">로직·변수를 많이 공유하면</text><text x="686" y="318">다 짜 보고 리뷰</text></g></g><g class="rg"><line x1="668" y1="100" x2="996" y2="100" marker-end="url(#b-ah-m70)"/><rect x="1000" y="40" width="560" height="360" rx="4" fill="#f7f7f5"/><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="832" y="84">선행 요건</text><text x="832" y="128" style="font-family:var(--font-mono)" font-size="15">args · write/exit/wait 루프</text></g><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="88" font-size="26" font-weight="700">첫 날(10/15)에 할 일</text><text x="1030" y="140">1  Pintos Gitbook 읽기</text><text x="1030" y="188">2  Shell·userprog가 도는 방식</text><text x="1062" y="213" fill="#6b6b6b" font-size="16">args-passing 준비 · 각자 AI로 조사</text><text x="1030" y="260">3  System Call 조사</text></g><line x1="1030" y1="295" x2="1530" y2="295" stroke="#6b6b6b" stroke-width="1.5"/></g><g class="rg"><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="345" style="font-family:var(--font-mono)" font-size="24" font-weight="700">★ fork() wait() exec()</text><text x="1062" y="375" fill="#6b6b6b" font-size="16">이번 주 핵심 → 공통으로</text></g></g><g class="rg hi"><line x1="668" y1="345" x2="996" y2="345" stroke-dasharray="9 7" marker-end="url(#b-ah-m70)"/><text x="832" y="378" fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle">프로세스 syscall 이후</text></g><g class="rg"><rect x="50" y="470" width="190" height="52" rx="4"/><line x1="145" y1="522" x2="145" y2="566" marker-end="url(#b-ah-m70)"/><rect x="50" y="570" width="340" height="160" rx="4" fill="#f7f7f5"/><line x1="240" y1="496" x2="376" y2="496" marker-end="url(#b-ah-m70)"/><rect x="380" y="455" width="430" height="82" rx="4"/><g fill="#0a0a0a" stroke="none" font-size="20"><text x="145" y="505" font-size="24" font-weight="700" text-anchor="middle">Convention</text><text x="70" y="606" fill="#6b6b6b" font-size="17">같이 볼 것</text><text x="70" y="643">✓ 이번 주 목표 한 줄</text><text x="70" y="679">✓ 날짜별 현황 (test)</text><text x="70" y="715">✓ 공통/분할 방법론</text><text x="595" y="492" font-weight="700" text-anchor="middle">오픈소스 규약 → formatter + linter</text><text x="595" y="520" fill="#6b6b6b" font-size="16" text-anchor="middle">함수·모듈·API·변수 이름과 모양 통일</text></g></g><g class="rg"><line x1="810" y1="480" x2="916" y2="471" marker-end="url(#b-ah-m70)"/><rect x="920" y="445" width="260" height="52" rx="4"/><g stroke="none" font-size="16" style="font-family:var(--font-mono)"><text x="1050" y="478" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle">CONVENTION.md</text><text x="1200" y="466" fill="#6b6b6b">.clang-format · .clang-tidy</text><text x="1200" y="490" fill="#6b6b6b">PR #104 · 10.15 merge</text></g></g><g class="rg"><line x1="810" y1="512" x2="916" y2="597" marker-end="url(#b-ah-m70)"/><rect x="920" y="575" width="260" height="52" rx="4"/><g stroke="none" font-size="16"><text x="1050" y="608" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle" style="font-family:var(--font-mono)">make ptest</text><text x="1200" y="596" fill="#6b6b6b">같은 테스트 명령</text><text x="1200" y="620" fill="#6b6b6b">결과는 보드로</text></g></g></svg></figure>
+    </div>
+    <div class="foot"><span>첫날 칠판 지도</span><span>화 · 수 · 10.20 – 10.21</span></div>
+    <aside class="notes" data-sec="3"><p>다음은 다시 분할입니다.</p></aside>
+</section>
+<!-- map-slide:end -->
+
+<!-- ============================================================
+     06b · 화: Tuesday assignment vs the code each person wrote
+     ============================================================ -->
+<section class="slide" id="s70">
+    <div class="head"><span>화 · 10.20</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2>분업 예시 : <em>화요일(10/20)</em></h2>
+        <div class="assign">
+            <div class="colh">분업표 · 화요일에 나눈 테스트</div>
+            <div class="colh">실제로 짠 것 · 화 – 수 커밋</div>
+            <img data-step="1" src="p2-team-workflow.assets/tue-block-benjohnbill.png" alt="분업표 화요일 블록: 파일 쪽 실패 정리 + filesys/base, benjohnbill, 13/13">
+            <div class="did ben" data-step="1"><span class="who ben">benjohnbill (나)</span>유저 page fault는 <code>exit(-1)</code>로 (<code>page_fault()</code>, bad-* 6개) · fd 이름을 CONVENTION에 맞춤 · filesize · tell · read 버퍼 쓰기 권한 검사 + 테스트 <code>read-code-seg</code> 추가 · 종료 시 fd 정리 중복 제거</div>
+            <img data-step="2" src="p2-team-workflow.assets/tue-block-nuri.png" alt="분업표 화요일 블록: fork의 fd 복제, Hannuri-Song, 4/4">
+            <div class="did nuri" data-step="2"><span class="who nuri">Nuri</span><code>fd_entry</code> fd 테이블 기반 · open · close · read · fork 때 fd 복제 · 종료 시 fd 정리 · seek · create</div>
+            <img data-step="3" src="p2-team-workflow.assets/tue-block-jszerodev.png" alt="분업표 화요일 블록: rox 실행 중인 파일에 쓰기 금지, JSZeroDev, 3/3">
+            <div class="did jsy" data-step="3"><span class="who jsy">승영</span>실행 파일 쓰기 금지 연결 (rox) · remove</div>
+        </div>
+    </div>
+    <div class="foot"><span>team-plan.html 화요일 · git log 10.20 – 10.21</span><span>화</span></div>
+    <aside class="notes" data-sec="35">
+        <p>화요일에는 남은 테스트를 묶음으로 나눴습니다.</p>
+        <p><span class="st">▸1</span>저는 파일 쪽 실패 정리와 filesys/base를 맡았고, 실제로는 bad 테스트 여섯 개를 위해 page_fault를 고쳤고, filesize와 tell 같은 작은 시스템 콜, 그리고 read 버퍼에 쓰기 권한이 있는지 검사하는 케이스를 맡았습니다.</p>
+        <p><span class="st">▸2</span>누리님은 fork의 fd 복제를 맡았는데, 그러려면 fd 테이블이 먼저 있어야 해서 fd_entry 구조체부터 open, read, 그리고 seek와 create까지 짜 주셨습니다.</p>
+        <p><span class="st">▸3</span>승영님은 rox, 실행 중인 파일에 쓰기 금지와 remove를 맡아 주셨습니다.</p>
+    </aside>
+</section>
+
+<!-- map-slide:start (generated by map-slides.py; edit the script, not this block) -->
+<section class="slide mapslide" id="m8">
+    <div class="head"><span>지도 · 다음</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2><em>분할 → 공통</em>: 다 짜 보고 리뷰했나</h2>
+        <figure class="board"><svg viewBox="0 0 1600 745" role="img" aria-label="첫날 칠판 지도: 회의와 PR의 단위는 작업이 정하고, 작업은 공통과 분할로 나뉜다. AI를 통한 시스템 콜 단위 분배로 공통에서 분할로, 로직·변수 공유가 많으면 분할에서 공통으로 옮긴다. 공통인 fork·wait·exec의 선행 요건에서 첫날 할 일이 나왔고, 컨벤션에서 CONVENTION.md와 make ptest가 나왔다." fill="none" stroke="currentColor" stroke-width="2.5"><defs><marker id="b-ah-m8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#0a0a0a" stroke="none"/></marker><marker id="b-ah-acc-m8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ff3300" stroke="none"/></marker></defs><g class="rg"><rect x="50" y="115" width="120" height="52" rx="4"/><rect x="50" y="195" width="120" height="52" rx="4"/><path d="M182 120 Q205 120 205 140 L205 170 Q205 181 218 181 Q205 181 205 192 L205 222 Q205 242 182 242"/><line x1="222" y1="181" x2="258" y2="181" marker-end="url(#b-ah-m8)"/><ellipse cx="322" cy="181" rx="62" ry="34"/><line x1="370" y1="160" x2="532" y2="112" marker-end="url(#b-ah-m8)"/><line x1="370" y1="202" x2="532" y2="316" marker-end="url(#b-ah-m8)"/><g fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle"><text x="110" y="150">회의</text><text x="110" y="230">PR</text><text x="322" y="190">작업</text></g><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="110" y="95">팀 활동의 단위</text><text x="322" y="245">단위를 정한다</text></g></g><g class="rg"><ellipse cx="600" cy="100" rx="66" ry="36"/><text x="600" y="109" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">공통</text></g><g class="rg"><ellipse cx="600" cy="330" rx="66" ry="36"/><text x="600" y="339" fill="#0a0a0a" stroke="none" font-size="26" font-weight="700" text-anchor="middle">분할</text></g><g class="rg"><line x1="636" y1="137" x2="636" y2="290" stroke="#ff3300" marker-end="url(#b-ah-acc-m8)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="178" font-weight="700" fill="#ff3300">↓ 공통 → 분할</text><text x="686" y="204">AI를 통한</text><text x="686" y="228">시스템 콜 단위 일 분배</text></g></g><g class="rg hi"><line x1="564" y1="293" x2="564" y2="140" stroke="#ff3300" marker-end="url(#b-ah-acc-m8)"/><g fill="#0a0a0a" stroke="none" font-size="19"><text x="686" y="268" font-weight="700" fill="#ff3300">↑ 분할 → 공통</text><text x="686" y="294">로직·변수를 많이 공유하면</text><text x="686" y="318">다 짜 보고 리뷰</text></g></g><g class="rg"><line x1="668" y1="100" x2="996" y2="100" marker-end="url(#b-ah-m8)"/><rect x="1000" y="40" width="560" height="360" rx="4" fill="#f7f7f5"/><g fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle"><text x="832" y="84">선행 요건</text><text x="832" y="128" style="font-family:var(--font-mono)" font-size="15">args · write/exit/wait 루프</text></g><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="88" font-size="26" font-weight="700">첫 날(10/15)에 할 일</text><text x="1030" y="140">1  Pintos Gitbook 읽기</text><text x="1030" y="188">2  Shell·userprog가 도는 방식</text><text x="1062" y="213" fill="#6b6b6b" font-size="16">args-passing 준비 · 각자 AI로 조사</text><text x="1030" y="260">3  System Call 조사</text></g><line x1="1030" y1="295" x2="1530" y2="295" stroke="#6b6b6b" stroke-width="1.5"/></g><g class="rg"><g fill="#0a0a0a" stroke="none" font-size="22"><text x="1030" y="345" style="font-family:var(--font-mono)" font-size="24" font-weight="700">★ fork() wait() exec()</text><text x="1062" y="375" fill="#6b6b6b" font-size="16">이번 주 핵심 → 공통으로</text></g></g><g class="rg"><line x1="668" y1="345" x2="996" y2="345" stroke-dasharray="9 7" marker-end="url(#b-ah-m8)"/><text x="832" y="378" fill="#6b6b6b" stroke="none" font-size="17" text-anchor="middle">프로세스 syscall 이후</text></g><g class="rg"><rect x="50" y="470" width="190" height="52" rx="4"/><line x1="145" y1="522" x2="145" y2="566" marker-end="url(#b-ah-m8)"/><rect x="50" y="570" width="340" height="160" rx="4" fill="#f7f7f5"/><line x1="240" y1="496" x2="376" y2="496" marker-end="url(#b-ah-m8)"/><rect x="380" y="455" width="430" height="82" rx="4"/><g fill="#0a0a0a" stroke="none" font-size="20"><text x="145" y="505" font-size="24" font-weight="700" text-anchor="middle">Convention</text><text x="70" y="606" fill="#6b6b6b" font-size="17">같이 볼 것</text><text x="70" y="643">✓ 이번 주 목표 한 줄</text><text x="70" y="679">✓ 날짜별 현황 (test)</text><text x="70" y="715">✓ 공통/분할 방법론</text><text x="595" y="492" font-weight="700" text-anchor="middle">오픈소스 규약 → formatter + linter</text><text x="595" y="520" fill="#6b6b6b" font-size="16" text-anchor="middle">함수·모듈·API·변수 이름과 모양 통일</text></g></g><g class="rg"><line x1="810" y1="480" x2="916" y2="471" marker-end="url(#b-ah-m8)"/><rect x="920" y="445" width="260" height="52" rx="4"/><g stroke="none" font-size="16" style="font-family:var(--font-mono)"><text x="1050" y="478" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle">CONVENTION.md</text><text x="1200" y="466" fill="#6b6b6b">.clang-format · .clang-tidy</text><text x="1200" y="490" fill="#6b6b6b">PR #104 · 10.15 merge</text></g></g><g class="rg"><line x1="810" y1="512" x2="916" y2="597" marker-end="url(#b-ah-m8)"/><rect x="920" y="575" width="260" height="52" rx="4"/><g stroke="none" font-size="16"><text x="1050" y="608" fill="#0a0a0a" font-size="20" font-weight="700" text-anchor="middle" style="font-family:var(--font-mono)">make ptest</text><text x="1200" y="596" fill="#6b6b6b">같은 테스트 명령</text><text x="1200" y="620" fill="#6b6b6b">결과는 보드로</text></g></g></svg></figure>
+    </div>
+    <div class="foot"><span>첫날 칠판 지도</span><span>마무리</span></div>
+    <aside class="notes" data-sec="3"><p>마지막으로, 분할에서 공통으로 돌아오는 화살표입니다.</p></aside>
+</section>
+<!-- map-slide:end -->
+
+<!-- ============================================================
+     08 · 분할 → 공통: the planned step, tried alone
+     ============================================================ -->
+<section class="slide" id="s8">
+    <div class="head"><span>화 – 수 · 10.20 – 10.21</span><span class="num"></span></div>
+    <div class="slide-content">
+        <h2>원래 계획의 마지막은 <em>분할 → 공통</em>: 남이 짠 부분까지 다 짜 보고 리뷰하기. 시간이 없어 혼자 시작에서 멈췄다.</h2>
+        <div class="drill" data-step="1">
+            <figure>
+                <img src="p2-team-workflow.assets/rewrite-exec-blanks.png" alt="SYS_EXEC 코드에 빈칸을 뚫어 둔 화면: cmd_line 검사, palloc_get_page 인자, 실패 시 exit_status, strlcpy 길이, process_exec 실패 처리가 빈칸">
+                <figcaption>rewrite/fwe · <code>SYS_EXEC</code>를 빈칸으로 뚫고 다시 채우기</figcaption>
+            </figure>
+            <div>
+                <div class="cap"><span>화요일 밤 · 6시간 타임어택 · args-passing 다음부터</span></div>
+                <ol class="track" data-evidence>
+                    <li class="done"><span class="n">1</span><span class="s">완료</span><span>record와 최소 <code>wait</code>/<code>exit</code></span></li>
+                    <li class="done"><span class="n">2</span><span class="s">완료</span><span><code>exec</code></span></li>
+                    <li class="half"><span class="n">3</span><span class="s">중간까지</span><span><code>fork</code></span></li>
+                    <li class="none"><span class="n">4</span><span class="s">미구현</span><span><code>wait</code></span></li>
+                    <li class="none"><span class="n">5</span><span class="s">못 함</span><span>그 뒤의 syscall</span></li>
+                </ol>
+            </div>
+        </div>
+    </div>
+    <div class="foot"><span>rewrite/fwe · 로컬 브랜치</span><span>화 – 수</span></div>
+    <aside class="notes" data-sec="30">
+        <p>첫날 계획에서 분할이 끝나면, 공통으로 돌아와 서로 짠 부분까지 각자 다 짜 보고 리뷰하는 단계가 있었습니다. 시간이 없어 팀으로는 하지 못했습니다.</p>
+        <p><span class="st">▸1</span>대신 화요일 밤, 앞의 그래프에 있던 빨간 브랜치를 혼자 파서, args-passing 다음부터 코드에 빈칸을 뚫고 다시 채워 봤습니다. 6시간 타임어택이었는데, exec까지 채우고 fork는 중간에서 멈췄습니다. wait와 그 뒤는 하지 못했습니다.</p>
+    </aside>
+</section>
+
+<!-- ============================================================
+     09 · Closing: next week
+     ============================================================ -->
+<section class="slide closing" id="s9">
+    <div class="head"><span>마무리</span><span class="num"></span></div>
+    <div class="slide-content">
+        <span class="kicker">다음주 개선점</span>
+        <h1>누가 짠 코드든 합칠 수 있도록 팀 활동을 구성하고자 했다.</h1>
+        <h1 data-step="1">그러나 팀적인 통일과 개인의 이해도는 완전히 다른 영역이었다.</h1>
+        <p class="punch" data-step="2">다음주에는 원리와 실패 원인을 모두 명료하게 설명할 수 있도록 공부하려고 합니다.</p>
+        <p class="thanks" data-step="2">감사합니다</p>
+    </div>
+    <div class="foot"><span>2026-10 · WEEK 08</span><span>8팀 · 조진근</span></div>
+    <aside class="notes" data-sec="20">
+        <p>누가 짠 코드든 합칠 수 있도록 팀 활동을 구성하고자 했습니다.</p>
+        <p><span class="st">▸1</span>그러나 팀적인 통일과 개인의 이해도는 완전히 다른 영역이었습니다.</p>
+        <p><span class="st">▸2</span>다음주에는 원리와 실패 원인을 모두 명료하게 설명할 수 있도록 공부하려고 합니다. 감사합니다.</p>
+    </aside>
+</section>
+
+<div id="notesPanel" hidden aria-live="polite">
+    <div class="meta"><span id="nSlide"></span><span>참고 시간 <b id="nSec"></b>초</span><span id="nStep"></span><span id="nTotal"></span></div>
+    <div class="body" id="nBody"></div>
+</div>
+
+<div id="helpOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-box">
+        <h2 id="helpTitle">단축키</h2>
+        <dl>
+            <dt>→ · Space</dt><dd>다음 단계, 마지막 단계 뒤에는 다음 슬라이드</dd>
+            <dt>←</dt><dd>이전 단계, 단계가 없으면 이전 슬라이드</dd>
+            <dt>Home · End</dt><dd>처음 · 마지막 슬라이드</dd>
+            <dt>N</dt><dd>발표자 노트 열고 닫기</dd>
+            <dt>E</dt><dd>편집 모드: 글자나 노트를 눌러 고치기</dd>
+            <dt>Tab</dt><dd>편집 중: 고르던 글자의 크기 버튼으로 (글자 크기, 상자 너비) · ← → 고르기 · Esc 돌아가기</dd>
+            <dt>Ctrl+S</dt><dd>저장: 에이전트가 연 주소면 원본 파일에, 파일로 열었으면 다운로드 폴더에</dd>
+            <dt>R</dt><dd>에이전트가 고친 뒤 새로고침 (알림이 떴을 때)</dd>
+            <dt>?</dt><dd>이 도움말 열고 닫기 (Esc로도 닫힘)</dd>
+        </dl>
+        <p class="help-save">고친 뒤 저장하고 에이전트에게 말해 주세요.</p>
+    </div>
+</div>
+<div id="notices" role="status" aria-live="polite"></div>
+<div id="sizeBar" role="toolbar" aria-label="크기 조절" hidden>
+    <button data-kind="t" data-dir="-1" aria-label="글자 작게">글자 −</button>
+    <button data-kind="t" data-dir="1" aria-label="글자 크게">글자 +</button>
+    <button data-kind="w" data-dir="-1" aria-label="상자 좁게">상자 −</button>
+    <button data-kind="w" data-dir="1" aria-label="상자 넓게">상자 +</button>
+    <button data-kind="reset" aria-label="기본 크기">기본</button>
+</div>
+<div id="firstHint" hidden role="status">? 키로 단축키를 볼 수 있어요 · 고친 뒤 저장하고 에이전트에게 말해 주세요.</div>
+
+<script>
+/* ===========================================
+   Deck controller: steps, hash, notes
+   =========================================== */
+const slides = Array.from(document.querySelectorAll('.slide'));
+const total = slides.length;
+
+/* ===========================================
+   In-browser editor. Every slide is kept by its section id.
+   Served by scripts/serve.py: Ctrl+S writes the changed sections into the
+   source file (a three-way save against the jd-base hash). Opened as a
+   file: Ctrl+S downloads the deck. Edits autosave to localStorage.
+   =========================================== */
+/* One key per deck file, so two decks on the same origin do not collide */
+const STORE = 'jungle-deck:' + location.pathname;
+const STASH = STORE + ':stash:';   /* + base hash: autosaves the file changed under */
+
+/* Strip edit traces (contenteditable, step state) */
+function scrub(root) {
+    root.querySelectorAll('[contenteditable]').forEach(e => e.removeAttribute('contenteditable'));
+    root.querySelectorAll('.on').forEach(e => e.classList.remove('on'));
+    root.querySelectorAll('[data-jd-over]').forEach(e => e.removeAttribute('data-jd-over'));
+    root.querySelectorAll('[class=""]').forEach(e => e.removeAttribute('class'));
+    root.querySelectorAll('[style*="--box-w"]').forEach(e => {   /* runtime width, set by fitBoxes */
+        e.style.removeProperty('--box-w');
+        if (!e.getAttribute('style')) e.removeAttribute('style');
+    });
+    return root;
+}
+/* One slide as it is saved: no edit traces, no runtime slide number */
+function sectionHTML(s) {
+    const c = scrub(s.cloneNode(true));
+    const num = c.querySelector('.head .num');
+    if (num) num.textContent = '';
+    return c.innerHTML;
+}
+const sectionsNow = () => Object.fromEntries(slides.map(s => [s.id, sectionHTML(s)]));
+
+/* pure: begin */
+/* Save rules on {id: html} maps, no DOM. tests/test_stage_save.py runs this block in Node */
+/* Write sections into slide elements by id, never by position: the page, or a copy */
+function applySections(map, els) {
+    els.forEach(s => { if (s.id in map) s.innerHTML = map[s.id]; });
+}
+function changed(base, current) {
+    const out = {};
+    for (const id in current) if (id in base && current[id] !== base[id]) out[id] = current[id];
+    return out;
+}
+/* Autosave record: changed sections only, each with the base it was edited from */
+function autosaveRecord(baseHash, base, current) {
+    const ids = Object.keys(changed(base, current));
+    if (!ids.length) return null;
+    const sections = {};
+    ids.forEach(id => { sections[id] = { base: base[id], current: current[id] }; });
+    return { base_hash: baseHash, sections };
+}
+/* At load: the same base puts the edits back by id; anything else is a stash */
+function restorePlan(saved, baseHash, now) {
+    const ids = Object.keys(saved.sections);
+    if (saved.base_hash !== baseHash || ids.some(id => !(id in now))) return { stash: true, apply: {} };
+    const apply = {};
+    ids.forEach(id => { apply[id] = saved.sections[id].current; });
+    return { stash: false, apply };
+}
+/* Restore (복원) without the server: a three-way merge in the page. A section takes the
+   stashed edit only while it still holds the base the edit was made from */
+function mergeStash(stash, now) {
+    const apply = {}, conflicts = [];
+    for (const id in stash.sections) {
+        const s = stash.sections[id];
+        if (now[id] === s.base) apply[id] = s.current;
+        else conflicts.push(id);
+    }
+    return { apply, conflicts: conflicts.sort() };
+}
+/* Restore with the server: a normal three-way save of the stash */
+function stashPayload(stash) {
+    const sections = {};
+    for (const id in stash.sections) sections[id] = stash.sections[id].current;
+    return { base_hash: stash.base_hash, sections };
+}
+/* The words of a section: tags dropped, entities decoded, whitespace removed. Removed,
+   not collapsed: a layout change moves the breaks between blocks (</h2><p> vs </h2>\n<p>) */
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+function plainText(html) {
+    return html.replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) =>
+            e[0] !== '#' ? (ENTITIES[e.toLowerCase()] ?? m)
+            : /^#x/i.test(e) ? String.fromCodePoint(parseInt(e.slice(2), 16))
+            : String.fromCodePoint(parseInt(e.slice(1), 10)))
+        .replace(/\s+/g, '');
+}
+/* The student's size steps in a section (jd-t-*, jd-w-*), in document order */
+const sizeSteps = html => (html.match(/\bjd-[tw]-[sl]\d\b/g) || []).join(' ');
+/* Student saves whose words or size steps the file no longer holds (an agent edit
+   overwrote them). Not the rest of the markup: the agent may change the layout around
+   them. An id gone from the file is not flagged: there is nothing to restore into */
+function overwritten(saved, file) {
+    return Object.keys(saved)
+        .filter(id => id in file && (plainText(saved[id]) !== plainText(file[id])
+                                     || sizeSteps(saved[id]) !== sizeSteps(file[id])))
+        .sort();
+}
+
+/* Saved slides whose id the file no longer holds: the agent deleted them */
+function deletedSlides(saved, file) {
+    return Object.keys(saved).filter(id => !(id in file)).sort();
+}
+/* Overflow on one measured box: {sw, cw, sh, ch} its scroll and client sizes, r its
+   rect [left, top, right, bottom], clip the rect of the nearest ancestor that clips
+   it (null: none), cuts: the box cuts long lines on purpose (code in a <pre>), so only
+   its height counts. Over: the content is larger than the box, or the box reaches past
+   the clip on any side (centered content overflows at the top too). 1 px is rounding */
+const OVER_PX = 1;
+function overflows(m) {
+    if ((!m.cuts && m.sw > m.cw + OVER_PX) || m.sh > m.ch + OVER_PX) return true;
+    const c = m.clip, [l, t, r, b] = m.r;
+    return !!c && (l < c[0] - OVER_PX || t < c[1] - OVER_PX || r > c[2] + OVER_PX || b > c[3] + OVER_PX);
+}
+
+/* The boxes under el that clip their content (clips(el) says so), for the overflow check.
+   Not real run output, not SVG: the student cannot fix them, and a log line cut at the
+   panel edge is on purpose. Not the notes: they are not on the slide */
+function clippingBoxes(el, clips, out = []) {
+    Array.from(el.children).forEach(c => {
+        if (c.hasAttribute('data-evidence') || /^svg$/i.test(c.tagName)
+            || (c.tagName === 'ASIDE' && c.classList.contains('notes'))) return;
+        if (clips(c)) out.push(c);
+        clippingBoxes(c, clips, out);
+    });
+    return out;
+}
+
+/* Edit rules on element-like nodes (tagName, childNodes, children, hasAttribute, classList).
+   Editable: the outermost elements in a slide that hold text of their own. Locked: real
+   run output under [data-evidence], the notes (edited in the notes panel), the slide
+   number, and SVG (its text is not editable in place) */
+function editableIn(el, out = []) {
+    if (el.hasAttribute('data-evidence') || el.classList.contains('num') || /^svg$/i.test(el.tagName)
+        || (el.tagName === 'ASIDE' && el.classList.contains('notes'))) return out;
+    if (Array.from(el.childNodes).some(n => n.nodeType === 3 && n.nodeValue.trim())) out.push(el);
+    else Array.from(el.children).forEach(c => editableIn(c, out));
+    return out;
+}
+/* Size steps the student sets: classes from a fixed scale of ±2, saved with the section.
+   null is the template size; the factors are the :root variables of the same names */
+const TEXT_STEPS = ['jd-t-s2', 'jd-t-s1', null, 'jd-t-l1', 'jd-t-l2'];
+const BOX_STEPS = ['jd-w-s2', 'jd-w-s1', null, 'jd-w-l1', 'jd-w-l2'];
+/* One step along `steps` (dir ±1, or 0 for the template size); stops at ±2 */
+function step(classes, steps, dir) {
+    const cur = steps.indexOf(classes.find(c => steps.includes(c)) ?? null);
+    const next = dir ? steps[Math.max(0, Math.min(steps.length - 1, cur + dir))] : null;
+    return classes.filter(c => !steps.includes(c)).concat(next ? [next] : []);
+}
+/* pure: end */
+
+/* Served: serve.py puts the hash of the served version in a jd-base meta */
+const baseMeta = document.querySelector('meta[name="jd-base"]');
+const served = !!baseMeta && location.protocol.startsWith('http');
+/* base: every section as loaded, captured before any autosave restore */
+const base = sectionsNow();
+/* Opened as a file: a hash of the sections stands in for the server's hash */
+const signature = (() => {
+    const src = Object.values(base).join('\u0000');
+    let h = 5381;
+    for (let i = 0; i < src.length; i++) h = ((h * 33) ^ src.charCodeAt(i)) >>> 0;
+    return src.length + '-' + h.toString(36);
+})();
+let baseHash = served ? baseMeta.content : signature;
+const unsaved = () => Object.keys(changed(base, sectionsNow())).length > 0;
+
+/* Notices: one line each, by key; a later notice with the same key replaces it */
+const notices = document.getElementById('notices');
+function notice(key, text, actions) {
+    let n = notices.querySelector('[data-key="' + key + '"]');
+    if (!n) {
+        n = document.createElement('div');
+        n.className = 'notice';
+        n.dataset.key = key;
+        notices.appendChild(n);
+    } else if (!actions && n.textContent === text) return;   /* the poll repeats itself */
+    n.replaceChildren(text);
+    (actions || []).forEach(([label, fn]) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.addEventListener('click', fn);
+        n.appendChild(b);
+    });
+}
+function clearNotice(key) {
+    const n = notices.querySelector('[data-key="' + key + '"]');
+    if (n) n.remove();
+}
+const STORAGE_FAILED = '자동 저장이 안 돼요 — 지금 Ctrl+S로 저장하세요';
+const SERVER_OFF = "서버가 꺼져 있어요. 에이전트에게 '서버 다시 켜줘'라고 말해 주세요";
+
+/* ===========================================
+   Overflow notice: after load, after each edit or size step, and on resize,
+   mark every box whose text does not fit and name its slides. No auto-fix:
+   the agent adjusts the layout
+   =========================================== */
+const rectOf = el => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+const clipsContent = el => { const cs = getComputedStyle(el); return cs.overflowX !== 'visible' || cs.overflowY !== 'visible'; };
+/* The boxes to check in a slide: its text and every box that clips (see clippingBoxes) */
+const boxesIn = s => [...new Set([...editableIn(s), ...clippingBoxes(s, clipsContent)])]
+    .filter(e => e.getClientRects().length);
+function measure(el) {
+    let a = el.parentElement;
+    while (a && !clipsContent(a) && !a.classList.contains('slide')) a = a.parentElement;
+    return { sw: el.scrollWidth, cw: el.clientWidth, sh: el.scrollHeight, ch: el.clientHeight,
+             r: rectOf(el), clip: a ? rectOf(a) : null,
+             cuts: el.tagName === 'PRE' && getComputedStyle(el).whiteSpace === 'pre' };
+}
+/* Checked once the typing settles, and never while a step slides in: measuring holds
+   every step in place, which would cut that reveal short */
+const OVER_WAIT_MS = 300;
+let overTimer = 0, stepAt = 0, overShown = '', overDismissed = '';
+function scheduleOverflow() {
+    clearTimeout(overTimer);
+    overTimer = setTimeout(checkOverflow, OVER_WAIT_MS);
+}
+function checkOverflow() {
+    if (performance.now() - stepAt < 600) return scheduleOverflow();   /* the reveal takes --dur (.5s) */
+    document.body.classList.add('jd-measure');   /* hidden steps sit 14px low until shown */
+    const found = slides.map(s => boxesIn(s).map(el => [el, overflows(measure(el))]));   /* read all, then mark */
+    document.body.classList.remove('jd-measure');
+    found.flat().forEach(([el, over]) => el.toggleAttribute('data-jd-over', over));
+    const ids = slides.filter((s, i) => found[i].some(([, over]) => over)).map(s => s.id);
+    const key = ids.join(', ');
+    if (!key) { overShown = overDismissed = ''; return clearNotice('overflow'); }
+    if (key === overDismissed || key === overShown) return;   /* 닫기 holds until the set changes */
+    overShown = key;
+    notice('overflow', '글이 상자를 넘쳐요 (' + key + ') — 에이전트에게 레이아웃 조정을 부탁하세요', [
+        ['닫기', () => { overDismissed = key; overShown = ''; clearNotice('overflow'); }],
+    ]);
+}
+window.addEventListener('resize', scheduleOverflow);
+window.addEventListener('load', scheduleOverflow);
+document.fonts.ready.then(scheduleOverflow);
+
+function saveLocal() {
+    try {
+        const rec = autosaveRecord(baseHash, base, sectionsNow());
+        if (rec) localStorage.setItem(STORE, JSON.stringify(rec));
+        else localStorage.removeItem(STORE);
+        clearNotice('storage');
+    } catch (e) {
+        notice('storage', STORAGE_FAILED);
+    }
+    scheduleOverflow();   /* every change autosaves, so every change is checked */
+}
+function dropStash(key) {
+    try { localStorage.removeItem(key); } catch (e) { notice('storage', STORAGE_FAILED); }
+    clearNotice(key);
+}
+
+/* The file changed under an autosave: keep it aside and offer it back */
+function showStash(key, stash) {
+    notice(key, '저장 안 된 편집이 있어요 (' + Object.keys(stash.sections).join(', ')
+                + ') — 그 뒤에 파일이 바뀌었어요', [
+        ['복원', () => restoreStash(key, stash)],
+        ['파일로 내보내기', () => exportFile(stashPayload(stash).sections)],
+        ['닫기', () => clearNotice(key)],   /* hides it until the next load; the stash stays */
+    ]);
+}
+async function restoreStash(key, stash) {
+    if (served) {
+        const payload = stashPayload(stash);
+        const r = await send(payload, false);
+        if (r && r.status < 300) {
+            applySections(payload.sections, slides);
+            renderNotes();
+            fitBoxes();
+            saveLocal();
+        }
+        if (r && (r.status < 300 || (r.status === 409 && r.body.payload))) dropStash(key);
+        return;
+    }
+    const plan = mergeStash(stash, sectionsNow());
+    applySections(plan.apply, slides);
+    renderNotes();
+    fitBoxes();
+    saveLocal();
+    if (!plan.conflicts.length) return dropStash(key);
+    const rest = { base_hash: stash.base_hash, sections: {} };
+    plan.conflicts.forEach(id => { rest.sections[id] = stash.sections[id]; });
+    try { localStorage.setItem(key, JSON.stringify(rest)); } catch (e) { notice('storage', STORAGE_FAILED); }
+    notice(key, '파일에서도 바뀐 슬라이드라 복원하지 못했어요 (' + plan.conflicts.join(', ')
+                + '). 파일로 내보내고 에이전트에게 말해 주세요', [
+        ['파일로 내보내기', () => exportFile(stashPayload(rest).sections)],
+        ['닫기', () => clearNotice(key)],
+    ]);
+}
+
+(function restoreLocal() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+        if (saved && !saved.sections) {
+            /* An autosave from the older page (by position): keep it, never apply it */
+            localStorage.setItem(STORE + ':stale', JSON.stringify(saved));
+            localStorage.removeItem(STORE);
+            notice('legacy', '예전 페이지의 자동 저장은 적용하지 않고 따로 보관했어요', [
+                ['닫기', () => clearNotice('legacy')],
+            ]);
+        } else if (saved) {
+            const plan = restorePlan(saved, baseHash, base);
+            if (plan.stash) {
+                const key = STASH + saved.base_hash;
+                const old = JSON.parse(localStorage.getItem(key) || 'null');
+                if (old) saved.sections = Object.assign(old.sections, saved.sections);
+                localStorage.setItem(key, JSON.stringify(saved));
+                localStorage.removeItem(STORE);
+            } else applySections(plan.apply, slides);
+        }
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith(STASH)) showStash(key, JSON.parse(localStorage.getItem(key)));
+        }
+    } catch (e) {
+        notice('storage', STORAGE_FAILED);
+    }
+})();
+
+/* ===========================================
+   Save: served -> POST /save; as a file -> download
+   =========================================== */
+const POLL_MS = 3000, POLL_SLOW_MS = 30000;
+let saving = false, conflicted = false, savedTimer = null;
+
+/* POST a JSON body with the page's save headers. Returns {status, body}, or
+   null when the server did not answer */
+async function post(path, body) {
+    try {
+        const res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Jungle-Deck': 'save' },
+            body: JSON.stringify(body),
+        });
+        return { status: res.status, body: await res.json().catch(() => ({})) };
+    } catch (e) {
+        return null;
+    }
+}
+
+/* GET /version -> {slug, source, hash}, or null when the server did not answer */
+async function version() {
+    try {
+        const res = await fetch('/version', { cache: 'no-store' });
+        return res.ok ? await res.json() : null;
+    } catch (e) {
+        return null;
+    }
+}
+function flash(text) {
+    notice('saved', text);
+    clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => clearNotice('saved'), 3000);
+}
+
+/* POST {base_hash, sections} to /save. `own`: the sections come from this
+   page's autosave, not from a stash. Returns {status, body}; null when the
+   server did not answer; undefined while another save runs */
+async function send(payload, own) {
+    if (saving) return undefined;
+    saving = true;
+    const r = await post('/save', payload);
+    saving = false;
+    if (!r) {
+        notice('off', SERVER_OFF);
+        exportFile(payload.sections);
+    } else if (r.status < 300) {
+        Object.assign(base, payload.sections);
+        rememberSaved(payload.sections);
+        /* Adopt the new hash only when the file held this page's base just
+           before the write (serve.py checks it under its save lock).
+           Otherwise the file also holds agent edits the page does not show:
+           keep the old hash, so a later save of such a section gets a 409
+           instead of overwriting it, and the poll offers R. A stash or a
+           restore is sent with another base, so it never moves this one */
+        if (r.body.base_current && payload.base_hash === baseHash) baseHash = r.body.hash;
+        conflicted = false;
+        saveLocal();
+        clearNotice('conflict'); clearNotice('error'); clearNotice('off');
+        const ids = r.body.written || [];
+        flash(ids.length ? '저장했어요 (' + ids.join(', ') + ')' : '바뀐 곳이 없어요');
+    } else if (r.status === 409) {
+        conflicted = true;
+        if (editing) toggleEdit();
+        notice('conflict', '에이전트 수정과 겹쳐요 (' + (r.body.conflicts || []).join(', ')
+                           + "). 에이전트에게 '겹친 거 합쳐줘'라고 말해 주세요");
+        if (r.body.payload) {
+            /* The agent merges these words into the file: they are the newest
+               student text to guard, not the older save */
+            rememberSaved(payload.sections);
+            /* the server kept the edits in _backup/, so the autosave may go */
+            if (own) try { localStorage.removeItem(STORE); } catch (e) { notice('storage', STORAGE_FAILED); }
+        }
+    } else {
+        notice('error', '저장이 안 됐어요 (HTTP ' + r.status + ') — 대신 파일로 내보냈어요');
+        exportFile(payload.sections);
+    }
+    return r;
+}
+
+function save() {
+    if (!served) return exportFile();
+    const sections = changed(base, sectionsNow());
+    if (!Object.keys(sections).length) return flash('바뀐 곳이 없어요');
+    send({ base_hash: baseHash, sections }, true);
+}
+
+/* ===========================================
+   Restore signal: an agent edit overwrote words the student saved.
+   After each 2xx save the page keeps the saved sections (survives R). On load
+   and on every file change it compares their words with the file's. 복원
+   saves them again with "restore": true; 그대로 두기 POSTs /keep. serve.py
+   logs `restore` or `keep`, and the agent reads that line
+   =========================================== */
+const SAVED = STORE + ':saved';   /* {id: html} of the last save of each section */
+function savedMap() {
+    try { return JSON.parse(localStorage.getItem(SAVED) || '{}'); }
+    catch (e) { notice('storage', STORAGE_FAILED); return {}; }
+}
+function rememberSaved(sections) {
+    try { localStorage.setItem(SAVED, JSON.stringify(Object.assign(savedMap(), sections))); }
+    catch (e) { notice('storage', STORAGE_FAILED); }
+}
+/* file: {id: html} of the source with the hash `fileHash` */
+function checkOverwrites(file, fileHash) {
+    const saved = savedMap();
+    const gone = deletedSlides(saved, file);   /* no 복원: the agent puts it back if it was a mistake */
+    if (gone.length) {
+        notice('deleted', '에이전트가 슬라이드를 지웠어요 (' + gone.join(', ') + ')', [
+            ['닫기', () => clearNotice('deleted')],
+        ]);
+        gone.forEach(id => { delete saved[id]; });   /* told once */
+        try { localStorage.setItem(SAVED, JSON.stringify(saved)); } catch (e) { notice('storage', STORAGE_FAILED); }
+    }
+    const ids = overwritten(saved, file);
+    if (!ids.length) return clearNotice('overwrite');
+    notice('overwrite', '에이전트 수정 뒤 내 저장 문구가 바뀌었어요 (' + ids.join(', ')
+                        + "). 복원하면 에이전트에게 '복원했어'라고 말해 주세요", [
+        ['복원', () => restoreSaved(ids, saved, fileHash)],
+        ['그대로 두기', () => keepAgent(ids)],
+        ['닫기', () => clearNotice('overwrite')],   /* back on the next load or file change */
+    ]);
+}
+async function restoreSaved(ids, saved, fileHash) {
+    /* A flagged slide with unsaved edits: saving first settles it. The restore
+       would either drop those edits or leave them on a base the file no longer holds */
+    const dirty = ids.filter(id => sectionHTML(document.getElementById(id)) !== base[id]);
+    if (dirty.length) {
+        return notice('restore-first', '복원하기 전에 먼저 저장(Ctrl+S)하세요 (' + dirty.join(', ') + ')', [
+            ['닫기', () => clearNotice('restore-first')],
+        ]);
+    }
+    const sections = {};
+    ids.forEach(id => { sections[id] = saved[id]; });
+    const r = await send({ base_hash: fileHash, sections, restore: true }, false);
+    if (!r || r.status >= 300) return;   /* send() showed why; a 409 kept the payload */
+    applySections(sections, slides);
+    renderNotes();
+    fitBoxes();
+    saveLocal();
+    clearNotice('overwrite');
+    notice('restored', '복원했어요 (' + ids.join(', ') + "). 에이전트에게 '복원했어'라고 말해 주세요", [
+        ['닫기', () => clearNotice('restored')],
+    ]);
+}
+async function keepAgent(ids) {
+    const r = await post('/keep', { keep: ids });
+    if (!r) return notice('off', SERVER_OFF);
+    if (r.status >= 300) return notice('error', '그대로 두기를 서버에 알리지 못했어요 (HTTP ' + r.status + ')');
+    /* The student took the agent's words: nothing of theirs left to guard there */
+    const saved = savedMap();
+    ids.forEach(id => { delete saved[id]; });
+    try { localStorage.setItem(SAVED, JSON.stringify(saved)); } catch (e) { notice('storage', STORAGE_FAILED); }
+    clearNotice('overwrite');
+}
+/* Fetch the source as served and check it; the jd-base meta names its hash */
+let checkedHash = null, checking = false;
+async function checkFile() {
+    if (checking) return;
+    checking = true;
+    try {
+        const res = await fetch(location.pathname, { cache: 'no-store' });
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        const meta = doc.querySelector('meta[name="jd-base"]');
+        if (res.ok && meta) {
+            checkedHash = meta.content;
+            checkOverwrites(Object.fromEntries(
+                Array.from(doc.querySelectorAll('.slide'), s => [s.id, sectionHTML(s)])), meta.content);
+        }
+    } catch (e) {
+        /* the poll reports a server that is off */
+    }
+    checking = false;
+}
+if (served) {
+    checkedHash = baseHash;
+    checkOverwrites({ ...base }, baseHash);   /* base: the file as loaded */
+}
+
+/* Change notice: poll /version every 3 s; after two misses, every 30 s */
+let misses = 0, reloadReady = false;
+async function poll() {
+    const v = await version();
+    if (!v) {
+        misses++;
+        if (misses >= 2) { notice('off', SERVER_OFF); reloadReady = false; clearNotice('agent'); }
+        setTimeout(poll, misses >= 2 ? POLL_SLOW_MS : POLL_MS);
+        return;
+    }
+    if (misses >= 2) clearNotice('off');
+    misses = 0;
+    if (!saving && v.hash !== checkedHash) checkFile();
+    if (saving) {
+        /* the hash moves under a save; judge it on the next poll */
+    } else if (v.hash !== baseHash) {
+        /* After a 409 the server holds the edits in _backup/, so R is safe */
+        reloadReady = conflicted || !unsaved();
+        notice('agent', reloadReady ? '에이전트가 수정했어요 — R로 새로고침'
+                                    : '에이전트가 수정했어요 — 먼저 저장(Ctrl+S)하세요');
+    } else {
+        reloadReady = false;
+        clearNotice('agent');
+    }
+    setTimeout(poll, POLL_MS);
+}
+if (served) setTimeout(poll, POLL_MS);
+
+const pad = n => String(n).padStart(2, '0');
+let cur = 0;
+
+/* Steps on a slide = the largest data-step in it */
+const maxStep = s => Math.max(0, ...Array.from(s.querySelectorAll('[data-step]'), e => Number(e.dataset.step)));
+const shown = s => Number(s.dataset.shown || 0);
+
+function setShown(s, n) {
+    stepAt = performance.now();
+    s.dataset.shown = n;
+    s.querySelectorAll('[data-step]').forEach(e => e.classList.toggle('on', Number(e.dataset.step) <= n));
+    renderNotes();
+}
+
+function show(i, n) {
+    i = Math.max(0, Math.min(total - 1, i));
+    if (i !== cur) {
+        const out = slides[cur];
+        slides.forEach(s => s.classList.remove('leaving'));
+        out.classList.add('leaving');
+        clearTimeout(show.t);
+        show.t = setTimeout(() => out.classList.remove('leaving'), 400);   /* after the new slide's .35s fade */
+    }
+    cur = i;
+    slides.forEach((s, k) => {
+        s.classList.toggle('active', k === i);
+        s.setAttribute('aria-hidden', k === i ? 'false' : 'true');
+    });
+    setShown(slides[i], n);
+    if (location.hash !== '#' + (i + 1)) history.replaceState(null, '', '#' + (i + 1));
+    document.getElementById('progressBar').style.transform = 'scaleX(' + (i / Math.max(1, total - 1)) + ')';
+    Array.from(document.getElementById('navDots').children).forEach((b, k) => b.classList.toggle('active', k === i));
+}
+
+function next() {
+    const s = slides[cur];
+    if (shown(s) < maxStep(s)) setShown(s, shown(s) + 1);
+    else if (cur < total - 1) show(cur + 1, 0);
+}
+function prev() {
+    const s = slides[cur];
+    if (shown(s) > 0) setShown(s, shown(s) - 1);
+    else if (cur > 0) show(cur - 1, maxStep(slides[cur - 1]));   /* going back shows that slide fully */
+}
+
+/* Speaker notes */
+const notesPanel = document.getElementById('notesPanel');
+const totalSec = slides.reduce((a, s) => a + Number((s.querySelector('aside.notes') || {}).dataset?.sec || 0), 0);
+function renderNotes() {
+    const s = slides[cur];
+    const a = s.querySelector('aside.notes');
+    document.getElementById('nSlide').textContent = pad(cur + 1) + ' / ' + pad(total);
+    document.getElementById('nSec').textContent = a ? a.dataset.sec : '–';
+    document.getElementById('nStep').textContent = maxStep(s) ? '단계 ' + shown(s) + ' / ' + maxStep(s) : '단계 없음';
+    document.getElementById('nTotal').textContent = '참고 합계 ' + totalSec + '초';
+    document.getElementById('nBody').innerHTML = a ? a.innerHTML : '';
+}
+
+/* Slide numbers and nav dots */
+slides.forEach((s, i) => {
+    const num = s.querySelector('.head .num');
+    if (num) num.textContent = pad(i + 1) + ' / ' + pad(total);
+    const b = document.createElement('button');
+    b.setAttribute('aria-label', (i + 1) + '번 슬라이드로');
+    b.addEventListener('click', () => show(i, 0));
+    document.getElementById('navDots').appendChild(b);
+});
+
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') { e.preventDefault(); save(); return; }
+    if (sizeBar.contains(e.target)) {   /* ← → move between its buttons; Esc goes back to the text */
+        const bs = Array.from(sizeBar.querySelectorAll('button:not([hidden])'));
+        const i = bs.indexOf(e.target);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            bs[(i + (e.key === 'ArrowRight' ? 1 : bs.length - 1)) % bs.length].focus();
+        } else if ((e.key === 'Escape' || (e.key === 'Tab' && e.shiftKey)) && selected) {
+            e.preventDefault();
+            selected.focus();
+            if (caret) { getSelection().removeAllRanges(); getSelection().addRange(caret); }
+        } else if (e.key === 'Tab' && selected) {   /* on to the next text, as Tab from the text would */
+            const els = Array.from(document.querySelectorAll('.slide.active [contenteditable="true"]'));
+            const to = els[els.indexOf(selected) + 1];
+            if (to) { e.preventDefault(); to.focus(); }
+        }
+        return;   /* Space and Enter press the button */
+    }
+    if (e.target.isContentEditable) {
+        if (e.key === 'Tab' && !e.shiftKey && !sizeBar.hidden) {
+            e.preventDefault();
+            caret = getSelection().rangeCount ? getSelection().getRangeAt(0).cloneRange() : null;
+            sizeBar.querySelector('button:not([hidden])').focus();
+        } else if (e.key === 'Escape') e.target.blur();   /* leave the caret so arrows navigate again */
+        return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    /* e.code, not e.key, so E, N, and ? work with a Korean IME on */
+    if (e.code === 'Slash') { e.preventDefault(); toggleHelp(); return; }
+    if (!helpOverlay.hidden) {
+        if (e.key === 'Escape') toggleHelp();
+        return;   /* the overlay holds the keys until it closes */
+    }
+    if (e.code === 'KeyE') { toggleEdit(); return; }
+    if (e.code === 'KeyR' && reloadReady) { location.reload(); return; }   /* the URL keeps #N */
+    if (e.code === 'KeyN') { notesPanel.hidden = !notesPanel.hidden; return; }
+    switch (e.key) {
+        case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ':
+            e.preventDefault(); next(); break;
+        case 'ArrowLeft': case 'ArrowUp': case 'PageUp':
+            e.preventDefault(); prev(); break;
+        case 'Home': e.preventDefault(); show(0, 0); break;
+        case 'End':  e.preventDefault(); show(total - 1, 0); break;
+    }
+});
+
+let x0 = null;
+document.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, { passive: true });
+document.addEventListener('touchend', e => {
+    if (x0 === null) return;
+    const dx = x0 - e.changedTouches[0].clientX;
+    if (Math.abs(dx) > 50) dx > 0 ? next() : prev();
+    x0 = null;
+}, { passive: true });
+
+/* Edit mode */
+let editing = false;
+const editToggle = document.getElementById('editToggle');
+const nBody = document.getElementById('nBody');
+
+function toggleEdit() {
+    editing = !editing;
+    document.body.classList.toggle('edit-active', editing);
+    editToggle.classList.toggle('active', editing);
+    editToggle.setAttribute('aria-label', editing ? '편집 모드 끄기' : '편집 모드 켜기');
+    if (editing) {
+        [...slides.flatMap(s => editableIn(s)), nBody].forEach(el => el.setAttribute('contenteditable', 'true'));
+        /* evidence inside an editable parent stays locked */
+        document.querySelectorAll('.slide [data-evidence]').forEach(el => el.setAttribute('contenteditable', 'false'));
+    } else document.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+    if (!editing && document.activeElement) document.activeElement.blur();
+    selected = null;
+    placeBar();
+}
+
+/* Size toolbar: the selected slide text gets text steps; its box gets width steps */
+const BOX = '.panel, .card, .box, .content-box, .container, [data-box]';
+const sizeBar = document.getElementById('sizeBar');
+let selected = null;
+const boxOf = el => { const b = el.closest(BOX), s = el.closest('.slide'); return b && s && b !== s && s.contains(b) ? b : null; };
+let caret = null;   /* where the caret was in the selected text when Tab left it */
+function placeBar() {
+    if (!editing || !selected) { sizeBar.hidden = true; return; }
+    sizeBar.querySelectorAll('[data-kind="w"]').forEach(b => { b.hidden = !boxOf(selected); });
+    sizeBar.hidden = false;
+    const r = selected.getBoundingClientRect();
+    sizeBar.style.top = Math.max(4, r.top - sizeBar.offsetHeight - 8) + 'px';
+    sizeBar.style.left = Math.max(4, Math.min(innerWidth - sizeBar.offsetWidth - 4, r.left)) + 'px';
+}
+function applySize(kind, dir) {
+    const box = boxOf(selected);
+    const set = (el, steps, d) => { el.className = step([...el.classList], steps, d).join(' '); };
+    if (kind === 't') set(selected, TEXT_STEPS, dir);
+    else if (kind === 'w' && box) set(box, BOX_STEPS, dir);
+    else if (kind === 'reset') {   /* 기본: back to the template size */
+        set(selected, TEXT_STEPS, 0);
+        if (box) set(box, BOX_STEPS, 0);
+    }
+    fitBoxes();
+    saveLocal();
+    placeBar();
+}
+/* Width steps: the box's own width (measured without the step) times the step's
+   factor, at most up to the slide's content edge or the next box in its row */
+function fitBoxes() {
+    const factors = getComputedStyle(document.documentElement);
+    document.querySelectorAll('.slide [style*="--box-w"]').forEach(b => {
+        b.style.removeProperty('--box-w');
+        if (!b.getAttribute('style')) b.removeAttribute('style');
+    });
+    document.querySelectorAll('.slide [class*="jd-w-"]').forEach(b => {
+        const s = BOX_STEPS.find(c => c && b.classList.contains(c));
+        const area = b.closest('.slide-content');
+        if (!s || !area) return;
+        const r = b.getBoundingClientRect(), a = area.getBoundingClientRect();
+        let right = a.right - parseFloat(getComputedStyle(area).paddingRight);
+        const gap = parseFloat(getComputedStyle(b.parentElement).columnGap) || 0;
+        for (const n of b.parentElement.children) {
+            const q = n.getBoundingClientRect();
+            if (n !== b && q.left >= r.right - 1 && q.top < r.bottom && q.bottom > r.top) right = Math.min(right, q.left - gap);
+        }
+        const zoom = b.offsetWidth ? r.width / b.offsetWidth : 1;   /* a box with a text step is zoomed too */
+        const w = Math.max(0, Math.min(r.width * parseFloat(factors.getPropertyValue('--' + s)), right - r.left));
+        b.style.setProperty('--box-w', (w / zoom) + 'px');
+    });
+}
+document.addEventListener('focusin', e => {
+    if (sizeBar.contains(e.target)) return;
+    selected = editing && e.target.isContentEditable && e.target.closest('.slide') ? e.target : null;
+    placeBar();
+});
+document.addEventListener('focusout', e => {
+    const to = e.relatedTarget;
+    if (!to || !(sizeBar.contains(to) || to.isContentEditable)) { selected = null; placeBar(); }
+});
+sizeBar.addEventListener('mousedown', e => e.preventDefault());   /* the text keeps its caret */
+sizeBar.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (b && selected) applySize(b.dataset.kind, Number(b.dataset.dir));
+});
+
+/* Any edit is saved at once */
+document.addEventListener('input', e => {
+    if (e.target === nBody) {
+        const a = slides[cur].querySelector('aside.notes');   /* notes panel writes back to its aside */
+        if (a) a.innerHTML = nBody.innerHTML;
+    }
+    fitBoxes();   /* new words change a box's own width */
+    saveLocal();
+});
+/* Paste plain text only, so outside formatting does not come in */
+document.addEventListener('paste', e => {
+    if (!e.target.closest || !e.target.closest('[contenteditable]')) return;
+    e.preventDefault();
+    document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+});
+
+/* overrides: {id: html} put into the copy by id (a stash export) */
+function exportFile(overrides) {
+    const doc = document.documentElement.cloneNode(true);
+    if (overrides) applySections(overrides, doc.querySelectorAll('.slide'));
+    scrub(doc);
+    doc.querySelector('body').removeAttribute('class');
+    doc.querySelectorAll('.slide').forEach(s => {
+        s.classList.remove('active', 'leaving'); s.removeAttribute('aria-hidden'); s.removeAttribute('data-shown');
+    });
+    doc.querySelector('#navDots').innerHTML = '';          /* the script rebuilds them */
+    doc.querySelector('#progressBar').removeAttribute('style');
+    doc.querySelector('#notesPanel').setAttribute('hidden', '');
+    doc.querySelectorAll('#notesPanel span[id], #notesPanel b[id], #nBody').forEach(e => e.textContent = '');
+    doc.querySelector('#editToggle').className = 'edit-toggle';
+    doc.querySelector('#editToggle').setAttribute('aria-label', '편집 모드 켜기');
+    doc.querySelector('#helpOverlay').setAttribute('hidden', '');
+    doc.querySelector('#firstHint').setAttribute('hidden', '');
+    doc.querySelector('#sizeBar').setAttribute('hidden', '');
+    doc.querySelector('#sizeBar').removeAttribute('style');
+    doc.querySelector('#notices').innerHTML = '';
+    const meta = doc.querySelector('meta[name="jd-base"]');   /* served copy only: the export is a file */
+    if (meta) meta.remove();
+    scrub(doc);
+    const blob = new Blob(['<!DOCTYPE html>\n' + doc.outerHTML], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    /* Same file name as the open deck, so the export can replace it */
+    a.download = decodeURIComponent(location.pathname.split('/').pop()) || 'deck.html';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* Edit button: appears when the mouse reaches the top-left corner */
+let hideTimer = null;
+const hotzone = document.querySelector('.edit-hotzone');
+hotzone.addEventListener('mouseenter', () => { clearTimeout(hideTimer); editToggle.classList.add('show'); });
+hotzone.addEventListener('mouseleave', () => {
+    hideTimer = setTimeout(() => { if (!editing) editToggle.classList.remove('show'); }, 400);
+});
+editToggle.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+editToggle.addEventListener('click', toggleEdit);
+
+/* ? overlay */
+const helpOverlay = document.getElementById('helpOverlay');
+function toggleHelp() {
+    helpOverlay.hidden = !helpOverlay.hidden;
+    if (!helpOverlay.hidden) firstHint.hidden = true;
+}
+helpOverlay.addEventListener('click', e => { if (e.target === helpOverlay) toggleHelp(); });
+
+/* One-time hint: the first time this deck opens in this browser */
+const firstHint = document.getElementById('firstHint');
+(function hintOnce() {
+    try {
+        if (localStorage.getItem(STORE + ':hinted')) return;
+        localStorage.setItem(STORE + ':hinted', '1');
+    } catch (e) {}   /* no storage: show it on every open rather than never */
+    firstHint.hidden = false;
+    firstHint.addEventListener('click', () => { firstHint.hidden = true; });
+    setTimeout(() => { firstHint.hidden = true; }, 10000);
+})();
+
+/* #3 opens slide 3 */
+const fromHash = () => {
+    const n = parseInt(location.hash.slice(1), 10);
+    return Number.isFinite(n) ? n - 1 : 0;
+};
+window.addEventListener('hashchange', () => { if (fromHash() !== cur) show(fromHash(), 0); });
+show(fromHash(), 0);
+fitBoxes();
+window.addEventListener('resize', fitBoxes);
+if (document.fonts) document.fonts.ready.then(fitBoxes);
+/* s5 board replay: the plan page's test blocks fill in, colored by who wrote the code that passes each test.
+   Edit WHO to re-attribute a test; anything not listed is gray (several people's code). */
+(() => {
+    const WHO = {
+        nuri: 'fork-once fork-multiple fork-recursive fork-boundary wait-simple wait-twice wait-killed wait-bad-pid multi-recurse fork-read fork-close multi-child-fd exec-read create-normal create-empty create-null create-bad-ptr create-long create-exists create-bound open-normal open-missing open-boundary open-empty open-null open-bad-ptr open-twice close-normal close-twice close-bad-fd read-normal read-bad-ptr read-boundary read-zero read-stdout read-bad-fd write-normal write-bad-ptr write-boundary write-zero write-stdin write-bad-fd',
+        jsy: 'exec-once exec-arg exec-boundary exec-missing exec-bad-ptr rox-simple rox-child rox-multichild',
+        ben: 'bad-read bad-write bad-read2 bad-write2 bad-jump bad-jump2',
+    };
+    const NAMES = { ben: 'benjohnbill', nuri: 'Nuri', jsy: '승영' };
+    const proc = 'fork-once fork-multiple fork-recursive fork-boundary exec-once exec-arg exec-boundary exec-missing exec-bad-ptr wait-simple wait-twice wait-killed wait-bad-pid multi-recurse';
+    /* Blocks and tests as in notes/team-plan.json (test blocks only) */
+    const BLOCKS = [
+        ['주말', 'fork·wait·exec + 포인터 검증', ['ben'], proc + ' halt bad-read bad-write bad-read2 bad-write2 bad-jump bad-jump2'],
+        ['월', 'fork·wait·exec 각자 구현', ['nuri', 'jsy'], proc],
+        ['월', 'fd 테이블 초안 + 파일 syscall', ['ben'], 'create-normal create-empty create-null create-bad-ptr create-long create-exists create-bound open-normal open-missing open-boundary open-empty open-null open-bad-ptr open-twice close-normal close-twice close-bad-fd read-normal read-bad-ptr read-boundary read-zero read-stdout read-bad-fd write-normal write-bad-ptr write-boundary write-zero write-stdin write-bad-fd', 'wide'],
+        ['화', 'fork의 fd 복제', ['nuri'], 'fork-read fork-close multi-child-fd exec-read'],
+        ['화', 'rox: 실행 중인 파일에 쓰기 금지', ['jsy'], 'rox-simple rox-child rox-multichild'],
+        ['화', '파일 쪽 실패 정리 + filesys/base', ['ben'], 'lg-create lg-full lg-random lg-seq-block lg-seq-random sm-create sm-full sm-random sm-seq-block sm-seq-random syn-read syn-remove syn-write'],
+        ['수', '여유 하루 · 최종 확인', ['team'], 'multi-oom'],
+    ];
+    const who = {};
+    for (const [k, v] of Object.entries(WHO)) v.split(' ').forEach(t => who[t] = k);
+    const board = document.getElementById('pboard');
+    if (!board) return;
+    board.replaceChildren();   /* a restored draft of s5 can carry the blocks of an earlier run */
+    const cells = [];
+    const blocks = BLOCKS.map(([day, title, owners, tests, cls]) => {
+        const el = document.createElement('div');
+        el.className = 'pblock' + (cls ? ' ' + cls : '');
+        const ts = tests.split(' ');
+        el.innerHTML = `<div class="bh"><span class="d">${day}</span><b>${title}</b><span class="n">0 / ${ts.length}</span></div>`
+            + `<div class="owners">${owners.map(o => `<span class="who ${o}">${o === 'team' ? '전원' : NAMES[o]}</span>`).join('')}</div>`
+            + `<div class="bar"><i></i></div><div class="cells"></div>`;
+        const box = el.querySelector('.cells');
+        const b = { n: el.querySelector('.n'), bar: el.querySelector('.bar i'), total: ts.length, done: 0 };
+        ts.forEach(t => {
+            const c = document.createElement('span');
+            const w = who[t] || 'team';
+            c.title = `${t} · ${w === 'team' ? '공동' : NAMES[w]}`;
+            c.style.setProperty('--c', `var(--p-${w})`);
+            box.appendChild(c);
+            cells.push({ c, b, t });
+        });
+        board.appendChild(el);
+        return b;
+    });
+    const done = document.getElementById('pdone');
+    document.getElementById('pall').textContent = cells.length;
+    let timers = [];
+    const paint = (b) => { b.n.textContent = `${b.done} / ${b.total}`; b.bar.style.width = (100 * b.done / b.total) + '%'; };
+    function reset() {
+        timers.forEach(clearTimeout); timers = [];
+        cells.forEach(x => x.c.classList.remove('on', 'settled'));
+        blocks.forEach(b => { b.done = 0; paint(b); });
+        done.textContent = 0;
+    }
+    function play() {
+        reset();
+        const instant = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        /* Same test name in two blocks finishes at the same moment: one result, two checks */
+        const at = {};
+        const order = [...new Set(cells.map(x => x.t))].sort(() => Math.random() - .5);
+        order.forEach((t, i) => at[t] = instant ? 0 : 400 + i * 5200 / order.length + Math.random() * 120);
+        let n = 0;
+        cells.forEach(x => timers.push(setTimeout(() => {
+            x.c.classList.add('on');
+            timers.push(setTimeout(() => x.c.classList.add('settled'), 220));
+            x.b.done++; paint(x.b);
+            done.textContent = ++n;
+        }, at[x.t])));
+    }
+    /* Step 1: the real page for 3 s, then the replay. → during those 3 s skips straight to the replay. */
+    const fig = board.closest('[data-step]');
+    const stage = document.getElementById('pstage');
+    const cap = document.getElementById('pcap');
+    const REAL = '실제 분업표 · team-plan.html';
+    const REPLAY = '재현: 수요일 코드로 <code>make ptest</code> 한 번 · 칸 색 = 그 테스트를 통과시킨 코드를 짠 사람';
+    let realT = 0;
+    function toReplay() { clearTimeout(realT); realT = 0; stage.classList.remove('real'); cap.innerHTML = REPLAY; play(); }
+    function toReal() { reset(); stage.classList.add('real'); cap.textContent = REAL; clearTimeout(realT); realT = setTimeout(toReplay, 6000); }
+    new MutationObserver(() => {
+        if (!fig.classList.contains('on')) { clearTimeout(realT); realT = 0; reset(); stage.classList.add('real'); cap.textContent = REAL; }
+        else if (!realT && !timers.length) toReal();
+    }).observe(fig, { attributes: true, attributeFilter: ['class'] });
+    window.addEventListener('keydown', e => {
+        if (realT && fig.classList.contains('on') && ['ArrowRight', ' ', 'PageDown'].includes(e.key)) {
+            e.preventDefault(); e.stopImmediatePropagation(); toReplay();
+        }
+    }, true);
+    board.addEventListener('click', toReplay);
+    cap.textContent = REAL;
+})();
+
+</script>
+</body>
+</html>
